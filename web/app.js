@@ -14,6 +14,7 @@ const views = Array.from(document.querySelectorAll(".view"));
 const playStepSelectEl = document.getElementById("playStepSelect");
 const playStepSetupEl = document.getElementById("playStepSetup");
 const playStepMatchEl = document.getElementById("playStepMatch");
+const playStepperEl = document.getElementById("playStepper");
 const toSetupStepBtn = document.getElementById("toSetupStepBtn");
 const backToSelectBtn = document.getElementById("backToSelectBtn");
 const backToSetupBtn = document.getElementById("backToSetupBtn");
@@ -54,6 +55,9 @@ const matchAverageLiveEl = document.getElementById("matchAverageLive");
 const throwsCountLiveEl = document.getElementById("throwsCountLive");
 
 const playersTableEl = document.getElementById("playersTable");
+const managePlayerInputs = ["managePlayer1", "managePlayer2", "managePlayer3", "managePlayer4"].map((id) => document.getElementById(id));
+const manageLegsToWinSetEl = document.getElementById("manageLegsToWinSet");
+const savePlayersManageBtn = document.getElementById("savePlayersManageBtn");
 const matchStatsEl = document.getElementById("matchStats");
 const playerStatsEl = document.getElementById("playerStats");
 const sourceEl = document.getElementById("source");
@@ -91,6 +95,10 @@ function setPlayStep(step) {
   };
   Object.entries(map).forEach(([name, el]) => {
     el.classList.toggle("active", name === step);
+  });
+  const stepButtons = Array.from(playStepperEl.querySelectorAll(".step"));
+  stepButtons.forEach((stepEl) => {
+    stepEl.classList.toggle("active", stepEl.dataset.step === step);
   });
 }
 
@@ -179,6 +187,12 @@ async function saveMatchSetup() {
   await postJson("/api/match", { players, legs_to_win_set: legs });
 }
 
+async function saveManagedPlayers() {
+  const players = managePlayerInputs.map((el) => el.value.trim()).filter((name) => name.length > 0).slice(0, 4);
+  const legs = Math.max(1, Number.parseInt(manageLegsToWinSetEl.value || "3", 10));
+  await postJson("/api/match", { players, legs_to_win_set: legs });
+}
+
 async function sendManualScore() {
   const points = Number.parseInt(manualDisplayEl.value || "0", 10);
   await postJson("/api/manual", { points, bed: "S" });
@@ -213,6 +227,10 @@ function renderPlayersTable(state) {
   playerInputs.forEach((input, idx) => {
     input.value = players[idx]?.name || "";
   });
+  managePlayerInputs.forEach((input, idx) => {
+    input.value = players[idx]?.name || "";
+  });
+  manageLegsToWinSetEl.value = String(state.game?.legs_to_win_set ?? 3);
 }
 
 function renderStats(state) {
@@ -253,7 +271,8 @@ function applyState(state) {
     titleGameEl.textContent = (state.game?.game || "X01").toUpperCase();
   }
 
-  legsToWinSetEl.value = String(state.game?.legs_to_win_set ?? 3);
+legsToWinSetEl.value = String(state.game?.legs_to_win_set ?? 3);
+manageLegsToWinSetEl.value = String(state.game?.legs_to_win_set ?? 3);
 
   renderPlayersTable(state);
   renderStats(state);
@@ -357,6 +376,16 @@ submitManualBtn.addEventListener("click", async () => {
 
 saveSettingsBtn.addEventListener("click", () => {
   restartPolling();
+});
+
+savePlayersManageBtn.addEventListener("click", async () => {
+  try {
+    await saveManagedPlayers();
+    await refreshState();
+    titleStatusEl.textContent = "Spieler aktualisiert";
+  } catch (err) {
+    titleStatusEl.textContent = `Spieler-Update fehlgeschlagen: ${err.message}`;
+  }
 });
 
 window.addEventListener("beforeinstallprompt", (event) => {

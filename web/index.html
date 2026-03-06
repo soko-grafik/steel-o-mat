@@ -48,6 +48,12 @@
 
     <main class="main">
       <section id="playView" class="view active">
+        <section class="stepper" id="playStepper">
+          <div class="step active" data-step="select"><span>1/3</span><strong>Spiel wählen</strong></div>
+          <div class="step" data-step="setup"><span>2/3</span><strong>Einstellungen</strong></div>
+          <div class="step" data-step="match"><span>3/3</span><strong>Match</strong></div>
+        </section>
+
         <section id="playStepSelect" class="play-step active">
           <h3>1. Spiel wählen</h3>
           <div class="game-pick">
@@ -151,6 +157,21 @@
 
       <section id="playersView" class="view">
         <h3>Spieler verwalten</h3>
+        <div class="panel">
+          <div class="setup-group players">
+            <input id="managePlayer1" type="text" value="Player 1" placeholder="Spieler 1" />
+            <input id="managePlayer2" type="text" value="Player 2" placeholder="Spieler 2" />
+            <input id="managePlayer3" type="text" placeholder="Spieler 3" />
+            <input id="managePlayer4" type="text" placeholder="Spieler 4" />
+            <div>
+              <label for="manageLegsToWinSet">Legs pro Set</label>
+              <input id="manageLegsToWinSet" type="number" min="1" max="9" value="3" />
+            </div>
+          </div>
+          <div class="controls">
+            <button id="savePlayersManageBtn">Spieler speichern</button>
+          </div>
+        </div>
         <div id="playersTable" class="table-wrap"></div>
       </section>
 

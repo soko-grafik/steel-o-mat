@@ -153,6 +153,36 @@ body {
 .play-step { display: none; }
 .play-step.active { display: block; }
 
+.stepper {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+  margin-bottom: 0.8rem;
+}
+
+.step {
+  border: 1px solid #3b414d;
+  border-radius: 12px;
+  background: #242932;
+  padding: 0.55rem 0.65rem;
+  display: grid;
+  gap: 0.15rem;
+}
+
+.step span {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.step strong {
+  font-size: 0.9rem;
+}
+
+.step.active {
+  background: linear-gradient(135deg, var(--red), #ef3147);
+  border-color: #ff6d82;
+}
+
 .game-pick {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
