@@ -65,10 +65,33 @@ const updatedAtEl = document.getElementById("updatedAt");
 
 const saveSettingsBtn = document.getElementById("saveSettingsBtn");
 const refreshMsEl = document.getElementById("refreshMs");
+const voteThresholdEl = document.getElementById("voteThreshold");
+const camFields = [
+  {
+    name: document.getElementById("cam1Name"),
+    device: document.getElementById("cam1Device"),
+    enabled: document.getElementById("cam1Enabled"),
+    preview: document.getElementById("cam1Preview"),
+  },
+  {
+    name: document.getElementById("cam2Name"),
+    device: document.getElementById("cam2Device"),
+    enabled: document.getElementById("cam2Enabled"),
+    preview: document.getElementById("cam2Preview"),
+  },
+  {
+    name: document.getElementById("cam3Name"),
+    device: document.getElementById("cam3Device"),
+    enabled: document.getElementById("cam3Enabled"),
+    preview: document.getElementById("cam3Preview"),
+  },
+];
 
 let deferredPrompt = null;
 let selectedGameMode = "x01";
 let pollTimer = null;
+let currentCameraConfig = { vote_threshold_mm: 25, cameras: [] };
+let availableCameras = [];
 
 function setInputValueIfIdle(inputEl, value) {
   if (!inputEl) return;
@@ -173,6 +196,78 @@ async function fetchState() {
   const res = await fetch("/api/state", { cache: "no-store" });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
+}
+
+async function fetchCameraConfig() {
+  const res = await fetch("/api/camera-config", { cache: "no-store" });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+async function fetchAvailableCameras() {
+  const res = await fetch("/api/cameras", { cache: "no-store" });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  return Array.isArray(data.cameras) ? data.cameras : [];
+}
+
+function renderCameraSelectOptions() {
+  const fallbackCameras = Array.from({ length: 10 }, (_, i) => ({ index: i, label: "Manuell" }));
+  const cameraOptions = availableCameras.length ? availableCameras : fallbackCameras;
+
+  camFields.forEach((field) => {
+    const current = field.device.value;
+    field.device.innerHTML = "";
+    cameraOptions.forEach((cam) => {
+      const option = document.createElement("option");
+      option.value = String(cam.index);
+      option.textContent = `${cam.label} (#${cam.index})`;
+      field.device.appendChild(option);
+    });
+    if (current) field.device.value = current;
+  });
+}
+
+function bindCameraStreams() {
+  camFields.forEach((field) => {
+    const selected = field.device.value;
+    if (!selected) {
+      field.preview.removeAttribute("src");
+      return;
+    }
+    field.preview.src = `/api/camera-stream?index=${encodeURIComponent(selected)}&t=${Date.now()}`;
+  });
+}
+
+function applyCameraConfig(config) {
+  currentCameraConfig = config || { vote_threshold_mm: 25, cameras: [] };
+  setInputValueIfIdle(voteThresholdEl, String(config.vote_threshold_mm ?? 25));
+  const cams = Array.isArray(config.cameras) ? config.cameras : [];
+  camFields.forEach((field, idx) => {
+    const cam = cams[idx];
+    if (!cam) return;
+    setInputValueIfIdle(field.name, String(cam.name ?? `cam-${idx + 1}`));
+    if (document.activeElement !== field.device) {
+      field.device.value = String(cam.index ?? idx);
+    }
+    if (document.activeElement !== field.enabled) {
+      field.enabled.checked = Boolean(cam.enabled ?? true);
+    }
+  });
+  bindCameraStreams();
+}
+
+function buildCameraPayload() {
+  const existingCameras = Array.isArray(currentCameraConfig.cameras) ? currentCameraConfig.cameras : [];
+  return {
+    vote_threshold_mm: Number.parseFloat(voteThresholdEl.value || "25"),
+    cameras: camFields.map((field, idx) => ({
+      name: (field.name.value || "").trim(),
+      index: Number.parseInt(field.device.value || `${idx}`, 10),
+      enabled: Boolean(field.enabled.checked),
+      homography: existingCameras[idx]?.homography ?? null,
+    })),
+  };
 }
 
 async function postJson(url, payload) {
@@ -313,6 +408,14 @@ startAppBtn.addEventListener("click", async () => {
   landingEl.classList.add("hidden");
   shellEl.classList.remove("hidden");
   await refreshState();
+  try {
+    availableCameras = await fetchAvailableCameras();
+    renderCameraSelectOptions();
+    const cameraConfig = await fetchCameraConfig();
+    applyCameraConfig(cameraConfig);
+  } catch {
+    titleStatusEl.textContent = "Kamera-Konfig konnte nicht geladen werden";
+  }
   restartPolling();
 });
 
@@ -387,7 +490,22 @@ submitManualBtn.addEventListener("click", async () => {
 });
 
 saveSettingsBtn.addEventListener("click", () => {
-  restartPolling();
+  (async () => {
+    try {
+      const saved = await postJson("/api/camera-config", buildCameraPayload());
+      if (saved.config) applyCameraConfig(saved.config);
+      availableCameras = await fetchAvailableCameras();
+      renderCameraSelectOptions();
+      restartPolling();
+      titleStatusEl.textContent = "Einstellungen gespeichert";
+    } catch (err) {
+      titleStatusEl.textContent = `Speichern fehlgeschlagen: ${err.message}`;
+    }
+  })();
+});
+
+camFields.forEach((field) => {
+  field.device.addEventListener("change", bindCameraStreams);
 });
 
 savePlayersManageBtn.addEventListener("click", async () => {

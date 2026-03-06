@@ -5,19 +5,67 @@
       "name": "cam-left",
       "index": 0,
       "enabled": true,
-      "homography": [[1, 0, -300], [0, -1, 300], [0, 0, 1]]
+      "homography": [
+        [
+          1,
+          0,
+          -300
+        ],
+        [
+          0,
+          -1,
+          300
+        ],
+        [
+          0,
+          0,
+          1
+        ]
+      ]
     },
     {
       "name": "cam-center",
-      "index": 1,
-      "enabled": true,
-      "homography": [[1, 0, -300], [0, -1, 300], [0, 0, 1]]
+      "index": 0,
+      "enabled": false,
+      "homography": [
+        [
+          1,
+          0,
+          -300
+        ],
+        [
+          0,
+          -1,
+          300
+        ],
+        [
+          0,
+          0,
+          1
+        ]
+      ]
     },
     {
       "name": "cam-right",
-      "index": 2,
-      "enabled": true,
-      "homography": [[1, 0, -300], [0, -1, 300], [0, 0, 1]]
+      "index": 0,
+      "enabled": false,
+      "homography": [
+        [
+          1,
+          0,
+          -300
+        ],
+        [
+          0,
+          -1,
+          300
+        ],
+        [
+          0,
+          0,
+          1
+        ]
+      ]
     }
   ]
 }

@@ -197,6 +197,33 @@ body {
   margin-bottom: 0.8rem;
 }
 
+.camera-grid {
+  display: grid;
+  gap: 0.55rem;
+  margin-bottom: 0.8rem;
+}
+
+.camera-row {
+  display: grid;
+  grid-template-columns: 70px 1fr 1fr 110px 160px;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.5rem;
+  border: 1px solid #3b4250;
+  border-radius: 10px;
+  background: #252a33;
+}
+
+.camera-preview {
+  width: 100%;
+  max-width: 160px;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border: 1px solid #434a58;
+  border-radius: 8px;
+  background: #12151b;
+}
+
 .setup-group.players { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
 
 label, .muted { font-size: 0.9rem; color: var(--muted); }
@@ -387,5 +414,11 @@ th, td {
 
   .sheet.open {
     transform: translate(-50%, 0);
+  }
+}
+
+@media (max-width: 680px) {
+  .camera-row {
+    grid-template-columns: 1fr;
   }
 }
