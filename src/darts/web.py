@@ -146,6 +146,17 @@ def _make_handler(runtime: RuntimeState, root: Path) -> type[SimpleHTTPRequestHa
                 self._send_json(result)
                 return
 
+            if self.path == "/api/manual":
+                data = self._read_json()
+                try:
+                    points = int(data.get("points"))
+                    bed = str(data.get("bed", "S"))
+                    runtime.update_manual(points=points, bed=bed, source="manual")
+                    self._send_json({"ok": True, "state": runtime.snapshot()})
+                except (TypeError, ValueError):
+                    self._send_json({"ok": False, "error": "points must be an integer"}, status=HTTPStatus.BAD_REQUEST)
+                return
+
             if self.path == "/api/simulate":
                 data = self._read_json()
                 if "x_mm" in data and "y_mm" in data:
