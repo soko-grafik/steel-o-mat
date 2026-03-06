@@ -14,7 +14,6 @@ const views = Array.from(document.querySelectorAll(".view"));
 const playStepSelectEl = document.getElementById("playStepSelect");
 const playStepSetupEl = document.getElementById("playStepSetup");
 const playStepMatchEl = document.getElementById("playStepMatch");
-const playStepperEl = document.getElementById("playStepper");
 const toSetupStepBtn = document.getElementById("toSetupStepBtn");
 const backToSelectBtn = document.getElementById("backToSelectBtn");
 const backToSetupBtn = document.getElementById("backToSetupBtn");
@@ -71,6 +70,12 @@ let deferredPrompt = null;
 let selectedGameMode = "x01";
 let pollTimer = null;
 
+function setInputValueIfIdle(inputEl, value) {
+  if (!inputEl) return;
+  if (document.activeElement === inputEl) return;
+  inputEl.value = value;
+}
+
 function openMenu() {
   offcanvasEl.classList.add("open");
   menuOverlayEl.classList.add("open");
@@ -95,10 +100,6 @@ function setPlayStep(step) {
   };
   Object.entries(map).forEach(([name, el]) => {
     el.classList.toggle("active", name === step);
-  });
-  const stepButtons = Array.from(playStepperEl.querySelectorAll(".step"));
-  stepButtons.forEach((stepEl) => {
-    stepEl.classList.toggle("active", stepEl.dataset.step === step);
   });
 }
 
@@ -135,6 +136,15 @@ function resetManualInput() {
 
 function getPlayersFromInputs() {
   return playerInputs.map((el) => el.value.trim()).filter((name) => name.length > 0).slice(0, 4);
+}
+
+function validatePlayers(players) {
+  if (players.length < 2) {
+    throw new Error("Mindestens 2 Spieler erforderlich");
+  }
+  if (players.length > 4) {
+    throw new Error("Maximal 4 Spieler pro Match erlaubt");
+  }
 }
 
 function getGamePayload() {
@@ -180,6 +190,7 @@ async function postJson(url, payload) {
 
 async function saveMatchSetup() {
   const players = getPlayersFromInputs();
+  validatePlayers(players);
   const legs = Math.max(1, Number.parseInt(legsToWinSetEl.value || "3", 10));
   const gamePayload = getGamePayload();
 
@@ -189,6 +200,7 @@ async function saveMatchSetup() {
 
 async function saveManagedPlayers() {
   const players = managePlayerInputs.map((el) => el.value.trim()).filter((name) => name.length > 0).slice(0, 4);
+  validatePlayers(players);
   const legs = Math.max(1, Number.parseInt(manageLegsToWinSetEl.value || "3", 10));
   await postJson("/api/match", { players, legs_to_win_set: legs });
 }
@@ -209,7 +221,7 @@ async function undoLast() {
 }
 
 function renderPlayersTable(state) {
-  const players = state.players || [];
+  const players = (state.players || []).slice(0, 4);
   const current = state.current_player;
   const isCricket = state.game?.game === "cricket";
   const cricketHead = isCricket ? "<th>20</th><th>19</th><th>18</th><th>17</th><th>16</th><th>15</th><th>B</th>" : "";
@@ -225,12 +237,12 @@ function renderPlayersTable(state) {
   playersTableEl.innerHTML = `<table><thead><tr><th>Spieler</th><th>Rest</th><th>Punkte</th><th>Legs</th><th>Sets</th>${cricketHead}</tr></thead><tbody>${rows}</tbody></table>`;
 
   playerInputs.forEach((input, idx) => {
-    input.value = players[idx]?.name || "";
+    setInputValueIfIdle(input, players[idx]?.name || "");
   });
   managePlayerInputs.forEach((input, idx) => {
-    input.value = players[idx]?.name || "";
+    setInputValueIfIdle(input, players[idx]?.name || "");
   });
-  manageLegsToWinSetEl.value = String(state.game?.legs_to_win_set ?? 3);
+  setInputValueIfIdle(manageLegsToWinSetEl, String(state.game?.legs_to_win_set ?? 3));
 }
 
 function renderStats(state) {
@@ -271,8 +283,8 @@ function applyState(state) {
     titleGameEl.textContent = (state.game?.game || "X01").toUpperCase();
   }
 
-legsToWinSetEl.value = String(state.game?.legs_to_win_set ?? 3);
-manageLegsToWinSetEl.value = String(state.game?.legs_to_win_set ?? 3);
+  setInputValueIfIdle(legsToWinSetEl, String(state.game?.legs_to_win_set ?? 3));
+  setInputValueIfIdle(manageLegsToWinSetEl, String(state.game?.legs_to_win_set ?? 3));
 
   renderPlayersTable(state);
   renderStats(state);
