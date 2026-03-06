@@ -1,4 +1,4 @@
-# Steel Dart Auto Scoring (3 USB Cameras)
+# Steel Dart Auto Scoring Local (3 USB Cameras)
 
 This repository provides a prototype steel dart auto-scoring system based on three USB cameras.
 
