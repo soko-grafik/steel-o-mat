@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0f1f1a" />
+  <title>DartVision Scorer</title>
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="bg-grid" aria-hidden="true"></div>
+  <main class="app-shell">
+    <header>
+      <p class="kicker">Steel Dart Auto Scoring</p>
+      <h1>DartVision</h1>
+      <button id="installBtn" class="ghost" hidden>App installieren</button>
+    </header>
+
+    <section class="score-panel">
+      <p class="label">Aktueller Wurf</p>
+      <p id="scoreValue" class="score">0</p>
+      <p id="scoreMeta" class="meta">Warte auf Daten ...</p>
+      <p id="gameStatus" class="meta">Matchstatus: -</p>
+      <div class="controls">
+        <button id="simulateBtn" class="ghost">Demo-Wurf</button>
+        <button id="undoBtn" class="warn">Undo letzter Dart</button>
+        <button id="reloadBtn" class="ghost">Neu laden</button>
+      </div>
+    </section>
+
+    <section class="game-panel">
+      <h2>Spielmodus</h2>
+      <div class="row">
+        <label for="gameType">Spiel</label>
+        <select id="gameType">
+          <option value="301">301</option>
+          <option value="501" selected>501</option>
+          <option value="701">701</option>
+          <option value="901">901</option>
+          <option value="cricket">Cricket</option>
+          <option value="shanghai">Shanghai</option>
+        </select>
+      </div>
+
+      <fieldset id="variationFieldset">
+        <legend>Variationen</legend>
+        <label><input type="checkbox" value="double_in" /> Double In</label>
+        <label><input type="checkbox" value="double_out" /> Double Out</label>
+        <label><input type="checkbox" value="master_out" /> Master Out</label>
+        <label><input type="checkbox" value="cut_throat" /> Cut-Throat</label>
+      </fieldset>
+
+      <div class="row compact">
+        <label for="legsToWinSet">Legs pro Set</label>
+        <input id="legsToWinSet" type="number" min="1" max="9" value="3" />
+      </div>
+
+      <div class="controls">
+        <button id="saveGameBtn">Spielmodus speichern</button>
+      </div>
+    </section>
+
+    <section class="players-panel">
+      <h2>Spieler (max. 4)</h2>
+      <div class="player-grid">
+        <input id="player1" type="text" placeholder="Spieler 1" value="Player 1" />
+        <input id="player2" type="text" placeholder="Spieler 2" value="Player 2" />
+        <input id="player3" type="text" placeholder="Spieler 3" />
+        <input id="player4" type="text" placeholder="Spieler 4" />
+      </div>
+      <div class="controls">
+        <button id="savePlayersBtn">Spieler speichern</button>
+      </div>
+      <div id="playersTable" class="table-wrap"></div>
+    </section>
+
+    <section class="history-panel">
+      <h2>Checkout-Historie</h2>
+      <div id="turnHistory" class="history-list"></div>
+    </section>
+
+    <section class="stats-panel">
+      <h2>Statistiken</h2>
+      <div id="matchStats"></div>
+      <div id="playerStats" class="table-wrap"></div>
+    </section>
+
+    <section class="diag">
+      <p><span class="muted">Quelle:</span> <span id="source">init</span></p>
+      <p><span class="muted">Position:</span> <span id="position">-</span></p>
+      <p><span class="muted">Update:</span> <span id="updatedAt">-</span></p>
+    </section>
+  </main>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

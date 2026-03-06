@@ -1,0 +1,27 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.venv/
+venv/
+
+# Build outputs
+build/
+dist/
+.cache/
+
+# Node artifacts
+node_modules/
+
+# Logs
+*.log
+
+# IDE/editor
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
