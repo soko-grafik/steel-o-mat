@@ -2,53 +2,9 @@
   "vote_threshold_mm": 25.0,
   "cameras": [
     {
-      "name": "cam-left",
+      "name": "cam-0",
       "index": 0,
       "enabled": true,
-      "homography": [
-        [
-          1,
-          0,
-          -300
-        ],
-        [
-          0,
-          -1,
-          300
-        ],
-        [
-          0,
-          0,
-          1
-        ]
-      ]
-    },
-    {
-      "name": "cam-center",
-      "index": 0,
-      "enabled": false,
-      "homography": [
-        [
-          1,
-          0,
-          -300
-        ],
-        [
-          0,
-          -1,
-          300
-        ],
-        [
-          0,
-          0,
-          1
-        ]
-      ]
-    },
-    {
-      "name": "cam-right",
-      "index": 0,
-      "enabled": false,
       "homography": [
         [
           1,

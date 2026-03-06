@@ -67,6 +67,10 @@ def _make_handler(runtime: RuntimeState, root: Path, config_path: str) -> type[S
             return {"vote_threshold_mm": 25.0, "cameras": []}
         return json.loads(config_file.read_text(encoding="utf-8"))
 
+    def write_camera_config(payload: dict[str, Any]) -> None:
+        config_file.parent.mkdir(parents=True, exist_ok=True)
+        config_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
     def validate_camera_config(payload: dict[str, Any]) -> dict[str, Any]:
         vote_threshold = float(payload.get("vote_threshold_mm", 25.0))
         raw_cameras = payload.get("cameras", [])
@@ -110,6 +114,25 @@ def _make_handler(runtime: RuntimeState, root: Path, config_path: str) -> type[S
             if ok:
                 devices.append({"index": index, "label": f"USB Camera {index}"})
         return devices
+
+    def compute_homography(image_points: list[list[float]], board_points: list[list[float]]) -> list[list[float]]:
+        try:
+            import cv2
+            import numpy as np
+        except ImportError as exc:
+            raise ValueError("opencv-python and numpy are required") from exc
+
+        if len(image_points) < 4 or len(board_points) < 4:
+            raise ValueError("at least 4 point pairs are required")
+        if len(image_points) != len(board_points):
+            raise ValueError("image_points and board_points must have same length")
+
+        src = np.array(image_points, dtype=np.float32).reshape(-1, 1, 2)
+        dst = np.array(board_points, dtype=np.float32).reshape(-1, 1, 2)
+        matrix, _ = cv2.findHomography(src, dst, method=0)
+        if matrix is None:
+            raise ValueError("could not compute homography")
+        return matrix.tolist()
 
     class Handler(SimpleHTTPRequestHandler):
         def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -311,9 +334,52 @@ def _make_handler(runtime: RuntimeState, root: Path, config_path: str) -> type[S
                 data = self._read_json()
                 try:
                     normalized = validate_camera_config(data)
-                    config_file.parent.mkdir(parents=True, exist_ok=True)
-                    config_file.write_text(json.dumps(normalized, indent=2), encoding="utf-8")
+                    write_camera_config(normalized)
                     self._send_json({"ok": True, "config": normalized})
+                except (TypeError, ValueError) as exc:
+                    self._send_json({"ok": False, "error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+                return
+
+            if self.path == "/api/camera-calibration":
+                data = self._read_json()
+                try:
+                    index = int(data.get("index"))
+                    image_points = data.get("image_points", [])
+                    board_points = data.get("board_points", [])
+                    if not isinstance(image_points, list) or not isinstance(board_points, list):
+                        raise ValueError("image_points and board_points must be arrays")
+
+                    homography = compute_homography(image_points, board_points)
+                    config_data = read_camera_config()
+                    cameras = config_data.get("cameras", [])
+                    if not isinstance(cameras, list):
+                        cameras = []
+
+                    matched = False
+                    for cam in cameras:
+                        if not isinstance(cam, dict):
+                            continue
+                        if int(cam.get("index", -1)) == index:
+                            cam["homography"] = homography
+                            cam["name"] = str(cam.get("name", "")).strip() or f"cam-{index}"
+                            cam["enabled"] = bool(cam.get("enabled", True))
+                            matched = True
+                            break
+
+                    if not matched:
+                        cameras.append(
+                            {
+                                "name": f"cam-{index}",
+                                "index": index,
+                                "enabled": True,
+                                "homography": homography,
+                            }
+                        )
+
+                    config_data["cameras"] = cameras[:4]
+                    config_data["vote_threshold_mm"] = float(config_data.get("vote_threshold_mm", 25.0))
+                    write_camera_config(config_data)
+                    self._send_json({"ok": True, "index": index, "homography": homography})
                 except (TypeError, ValueError) as exc:
                     self._send_json({"ok": False, "error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
                 return

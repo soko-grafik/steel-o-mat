@@ -188,21 +188,18 @@
           <div class="camera-grid">
             <div class="camera-row">
               <strong>Cam 1</strong>
-              <input id="cam1Name" type="text" placeholder="Name optional" />
               <select id="cam1Device"></select>
               <label class="checkline"><input id="cam1Enabled" type="checkbox" checked /> Aktiv</label>
               <img id="cam1Preview" class="camera-preview" alt="Cam 1 Vorschau" />
             </div>
             <div class="camera-row">
               <strong>Cam 2</strong>
-              <input id="cam2Name" type="text" placeholder="Name optional" />
               <select id="cam2Device"></select>
               <label class="checkline"><input id="cam2Enabled" type="checkbox" checked /> Aktiv</label>
               <img id="cam2Preview" class="camera-preview" alt="Cam 2 Vorschau" />
             </div>
             <div class="camera-row">
               <strong>Cam 3</strong>
-              <input id="cam3Name" type="text" placeholder="Name optional" />
               <select id="cam3Device"></select>
               <label class="checkline"><input id="cam3Enabled" type="checkbox" checked /> Aktiv</label>
               <img id="cam3Preview" class="camera-preview" alt="Cam 3 Vorschau" />
@@ -211,7 +208,27 @@
           <h4>UI</h4>
           <label for="refreshMs">Refresh (ms)</label>
           <input id="refreshMs" type="number" min="250" max="5000" value="500" />
+          <h4>Kalibrierung (Virtuelle Spinne)</h4>
+          <div class="setup-group">
+            <div>
+              <label for="calibrationCamera">Kamera</label>
+              <select id="calibrationCamera"></select>
+            </div>
+          </div>
+          <div class="calibration-wrap">
+            <div class="calibration-live">
+              <img id="calibrationStream" alt="Kalibrierung Live Stream" />
+              <canvas id="calibrationCanvas"></canvas>
+            </div>
+            <div class="calibration-info">
+              <p id="calibrationStepText">Schritt: nicht gestartet</p>
+              <p class="muted">Klicke nacheinander die markierten Spider-Referenzpunkte im Livebild an.</p>
+            </div>
+          </div>
           <div class="controls">
+            <button id="startCalibrationBtn" class="ghost">Kalibrierung starten</button>
+            <button id="resetCalibrationBtn" class="ghost">Kalibrierung zurücksetzen</button>
+            <button id="saveCalibrationBtn">Kalibrierung speichern</button>
             <button id="saveSettingsBtn">Speichern</button>
             <button id="reloadBtn" class="ghost">Neu laden</button>
           </div>

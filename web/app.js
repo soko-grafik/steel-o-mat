@@ -66,21 +66,25 @@ const updatedAtEl = document.getElementById("updatedAt");
 const saveSettingsBtn = document.getElementById("saveSettingsBtn");
 const refreshMsEl = document.getElementById("refreshMs");
 const voteThresholdEl = document.getElementById("voteThreshold");
+const calibrationCameraEl = document.getElementById("calibrationCamera");
+const calibrationStreamEl = document.getElementById("calibrationStream");
+const calibrationCanvasEl = document.getElementById("calibrationCanvas");
+const calibrationStepTextEl = document.getElementById("calibrationStepText");
+const startCalibrationBtn = document.getElementById("startCalibrationBtn");
+const resetCalibrationBtn = document.getElementById("resetCalibrationBtn");
+const saveCalibrationBtn = document.getElementById("saveCalibrationBtn");
 const camFields = [
   {
-    name: document.getElementById("cam1Name"),
     device: document.getElementById("cam1Device"),
     enabled: document.getElementById("cam1Enabled"),
     preview: document.getElementById("cam1Preview"),
   },
   {
-    name: document.getElementById("cam2Name"),
     device: document.getElementById("cam2Device"),
     enabled: document.getElementById("cam2Enabled"),
     preview: document.getElementById("cam2Preview"),
   },
   {
-    name: document.getElementById("cam3Name"),
     device: document.getElementById("cam3Device"),
     enabled: document.getElementById("cam3Enabled"),
     preview: document.getElementById("cam3Preview"),
@@ -92,6 +96,14 @@ let selectedGameMode = "x01";
 let pollTimer = null;
 let currentCameraConfig = { vote_threshold_mm: 25, cameras: [] };
 let availableCameras = [];
+let calibrationImagePoints = [];
+let calibrationActive = false;
+const calibrationBoardPoints = [
+  [0, 170],
+  [170, 0],
+  [0, -170],
+  [-170, 0],
+];
 
 function setInputValueIfIdle(inputEl, value) {
   if (!inputEl) return;
@@ -218,6 +230,10 @@ function renderCameraSelectOptions() {
   camFields.forEach((field) => {
     const current = field.device.value;
     field.device.innerHTML = "";
+    const noneOption = document.createElement("option");
+    noneOption.value = "";
+    noneOption.textContent = "Keine";
+    field.device.appendChild(noneOption);
     cameraOptions.forEach((cam) => {
       const option = document.createElement("option");
       option.value = String(cam.index);
@@ -226,6 +242,21 @@ function renderCameraSelectOptions() {
     });
     if (current) field.device.value = current;
   });
+
+  const currentCalibrationValue = calibrationCameraEl.value;
+  calibrationCameraEl.innerHTML = "";
+  const calibrationNoneOption = document.createElement("option");
+  calibrationNoneOption.value = "";
+  calibrationNoneOption.textContent = "Keine";
+  calibrationCameraEl.appendChild(calibrationNoneOption);
+
+  cameraOptions.forEach((cam) => {
+    const option = document.createElement("option");
+    option.value = String(cam.index);
+    option.textContent = `${cam.label} (#${cam.index})`;
+    calibrationCameraEl.appendChild(option);
+  });
+  if (currentCalibrationValue) calibrationCameraEl.value = currentCalibrationValue;
 }
 
 function bindCameraStreams() {
@@ -237,6 +268,72 @@ function bindCameraStreams() {
     }
     field.preview.src = `/api/camera-stream?index=${encodeURIComponent(selected)}&t=${Date.now()}`;
   });
+
+  bindCalibrationStream();
+}
+
+function bindCalibrationStream() {
+  const selected = calibrationCameraEl.value;
+  if (!selected) {
+    calibrationStreamEl.removeAttribute("src");
+    return;
+  }
+  calibrationStreamEl.src = `/api/camera-stream?index=${encodeURIComponent(selected)}&t=${Date.now()}`;
+}
+
+function drawCalibrationOverlay() {
+  const canvas = calibrationCanvasEl;
+  const image = calibrationStreamEl;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+
+  const width = image.clientWidth || 640;
+  const height = image.clientHeight || 360;
+  canvas.width = width;
+  canvas.height = height;
+
+  ctx.clearRect(0, 0, width, height);
+  const centerX = width / 2;
+  const centerY = height / 2;
+  const scale = Math.min(width, height) / 400;
+
+  ctx.strokeStyle = "rgba(255,255,255,0.45)";
+  ctx.lineWidth = 2;
+  [170, 162, 107, 99, 16, 6].forEach((r) => {
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, r * scale, 0, Math.PI * 2);
+    ctx.stroke();
+  });
+
+  calibrationBoardPoints.forEach((p, idx) => {
+    const x = centerX + p[0] * scale;
+    const y = centerY - p[1] * scale;
+    const isCurrent = idx === calibrationImagePoints.length && calibrationActive;
+    ctx.beginPath();
+    ctx.fillStyle = isCurrent ? "#ffd84a" : "rgba(255,255,255,0.65)";
+    ctx.arc(x, y, isCurrent ? 8 : 5, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  calibrationImagePoints.forEach((p) => {
+    ctx.beginPath();
+    ctx.fillStyle = "#ff314b";
+    ctx.arc(p[0], p[1], 6, 0, Math.PI * 2);
+    ctx.fill();
+  });
+}
+
+function updateCalibrationStepText() {
+  const steps = ["Oben D20", "Rechts D6", "Unten D3", "Links D11"];
+  if (!calibrationActive) {
+    calibrationStepTextEl.textContent = "Schritt: nicht gestartet";
+    return;
+  }
+  if (calibrationImagePoints.length >= steps.length) {
+    calibrationStepTextEl.textContent = "Schritt: alle Punkte gesetzt, jetzt speichern";
+    return;
+  }
+  calibrationStepTextEl.textContent = `Schritt ${calibrationImagePoints.length + 1}/4: ${steps[calibrationImagePoints.length]}`;
 }
 
 function applyCameraConfig(config) {
@@ -245,11 +342,9 @@ function applyCameraConfig(config) {
   const cams = Array.isArray(config.cameras) ? config.cameras : [];
   camFields.forEach((field, idx) => {
     const cam = cams[idx];
+    if (document.activeElement !== field.device) field.device.value = "";
     if (!cam) return;
-    setInputValueIfIdle(field.name, String(cam.name ?? `cam-${idx + 1}`));
-    if (document.activeElement !== field.device) {
-      field.device.value = String(cam.index ?? idx);
-    }
+    if (document.activeElement !== field.device) field.device.value = String(cam.index ?? "");
     if (document.activeElement !== field.enabled) {
       field.enabled.checked = Boolean(cam.enabled ?? true);
     }
@@ -259,14 +354,25 @@ function applyCameraConfig(config) {
 
 function buildCameraPayload() {
   const existingCameras = Array.isArray(currentCameraConfig.cameras) ? currentCameraConfig.cameras : [];
+  const homographyByIndex = new Map(existingCameras.map((cam) => [Number(cam.index), cam.homography]));
+  const cameras = camFields
+    .map((field, idx) => {
+      const selected = field.device.value;
+      if (!selected) return null;
+      const parsedIndex = Number.parseInt(selected, 10);
+      if (Number.isNaN(parsedIndex)) return null;
+      return {
+        name: `cam-${parsedIndex}`,
+        index: parsedIndex,
+        enabled: Boolean(field.enabled.checked),
+        homography: homographyByIndex.get(parsedIndex) ?? null,
+      };
+    })
+    .filter((cam) => cam !== null);
+
   return {
     vote_threshold_mm: Number.parseFloat(voteThresholdEl.value || "25"),
-    cameras: camFields.map((field, idx) => ({
-      name: (field.name.value || "").trim(),
-      index: Number.parseInt(field.device.value || `${idx}`, 10),
-      enabled: Boolean(field.enabled.checked),
-      homography: existingCameras[idx]?.homography ?? null,
-    })),
+    cameras,
   };
 }
 
@@ -417,6 +523,8 @@ startAppBtn.addEventListener("click", async () => {
     titleStatusEl.textContent = "Kamera-Konfig konnte nicht geladen werden";
   }
   restartPolling();
+  drawCalibrationOverlay();
+  updateCalibrationStepText();
 });
 
 menuBtn.addEventListener("click", openMenu);
@@ -508,6 +616,58 @@ camFields.forEach((field) => {
   field.device.addEventListener("change", bindCameraStreams);
 });
 
+calibrationCameraEl.addEventListener("change", () => {
+  bindCalibrationStream();
+  drawCalibrationOverlay();
+});
+
+calibrationCanvasEl.addEventListener("click", (event) => {
+  if (!calibrationActive) return;
+  if (calibrationImagePoints.length >= calibrationBoardPoints.length) return;
+
+  const rect = calibrationCanvasEl.getBoundingClientRect();
+  const x = event.clientX - rect.left;
+  const y = event.clientY - rect.top;
+  calibrationImagePoints.push([x, y]);
+  drawCalibrationOverlay();
+  updateCalibrationStepText();
+});
+
+startCalibrationBtn.addEventListener("click", () => {
+  calibrationActive = true;
+  calibrationImagePoints = [];
+  drawCalibrationOverlay();
+  updateCalibrationStepText();
+});
+
+resetCalibrationBtn.addEventListener("click", () => {
+  calibrationImagePoints = [];
+  calibrationActive = false;
+  drawCalibrationOverlay();
+  updateCalibrationStepText();
+});
+
+saveCalibrationBtn.addEventListener("click", async () => {
+  try {
+    const index = Number.parseInt(calibrationCameraEl.value || "", 10);
+    if (Number.isNaN(index)) throw new Error("Bitte Kamera für Kalibrierung wählen");
+    if (calibrationImagePoints.length < calibrationBoardPoints.length) {
+      throw new Error("Bitte erst alle 4 Kalibrierpunkte setzen");
+    }
+
+    await postJson("/api/camera-calibration", {
+      index,
+      image_points: calibrationImagePoints,
+      board_points: calibrationBoardPoints,
+    });
+    calibrationActive = false;
+    updateCalibrationStepText();
+    titleStatusEl.textContent = "Kalibrierung gespeichert";
+  } catch (err) {
+    titleStatusEl.textContent = `Kalibrierung fehlgeschlagen: ${err.message}`;
+  }
+});
+
 savePlayersManageBtn.addEventListener("click", async () => {
   try {
     await saveManagedPlayers();
@@ -537,6 +697,9 @@ if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/sw.js");
   });
 }
+
+calibrationStreamEl.addEventListener("load", drawCalibrationOverlay);
+window.addEventListener("resize", drawCalibrationOverlay);
 
 setGameMode("x01");
 setPlayStep("select");
