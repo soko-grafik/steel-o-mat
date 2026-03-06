@@ -1,4 +1,4 @@
-const VERSION = "dartvision-v2";
+const VERSION = "dartvision-v3";
 const STATIC_ASSETS = [
   "/",
   "/index.html",

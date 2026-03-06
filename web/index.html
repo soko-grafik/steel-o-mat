@@ -3,94 +3,157 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="theme-color" content="#0f1f1a" />
+  <meta name="theme-color" content="#112018" />
   <title>DartVision Scorer</title>
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/icon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <div class="bg-grid" aria-hidden="true"></div>
-  <main class="app-shell">
-    <header>
-      <p class="kicker">Steel Dart Auto Scoring</p>
-      <h1>DartVision</h1>
-      <button id="installBtn" class="ghost" hidden>App installieren</button>
-    </header>
+  <div class="ambient" aria-hidden="true"></div>
 
-    <section class="score-panel">
-      <p class="label">Aktueller Wurf</p>
-      <p id="scoreValue" class="score">0</p>
-      <p id="scoreMeta" class="meta">Warte auf Daten ...</p>
-      <p id="gameStatus" class="meta">Matchstatus: -</p>
-      <div class="controls">
-        <button id="simulateBtn" class="ghost">Demo-Wurf</button>
-        <button id="undoBtn" class="warn">Undo letzter Dart</button>
-        <button id="reloadBtn" class="ghost">Neu laden</button>
+  <section id="landing" class="landing">
+    <p class="eyebrow">Steel Dart Auto Scoring</p>
+    <h1>DartVision Arena</h1>
+    <p class="landing-copy">Automatische Erkennung, Mehrspieler-Flow und Live-Statistik in einer Oberfläche.</p>
+    <div class="landing-actions">
+      <button id="startAppBtn">App starten</button>
+      <button id="installBtn" class="ghost" hidden>Als App installieren</button>
+    </div>
+  </section>
+
+  <main id="appRoot" class="app-shell hidden">
+    <aside class="sidebar">
+      <h2>Menü</h2>
+      <nav class="nav-list">
+        <button class="nav-btn active" data-view="playView">Spielen</button>
+        <button class="nav-btn" data-view="playersView">Spieler verwalten</button>
+        <button class="nav-btn" data-view="statsView">Statistik</button>
+        <button class="nav-btn" data-view="settingsView">Einstellungen</button>
+      </nav>
+      <div class="live-box">
+        <p class="muted">Aktueller Wurf</p>
+        <p id="scoreValue" class="score">0</p>
+        <p id="scoreMeta" class="muted">Warte auf Daten ...</p>
       </div>
-    </section>
-
-    <section class="game-panel">
-      <h2>Spielmodus</h2>
-      <div class="row">
-        <label for="gameType">Spiel</label>
-        <select id="gameType">
-          <option value="301">301</option>
-          <option value="501" selected>501</option>
-          <option value="701">701</option>
-          <option value="901">901</option>
-          <option value="cricket">Cricket</option>
-          <option value="shanghai">Shanghai</option>
-        </select>
+      <div class="live-box small">
+        <p><span class="muted">Spieler am Zug:</span> <span id="currentPlayer">-</span></p>
+        <p><span class="muted">Match:</span> <span id="gameStatus">-</span></p>
       </div>
+    </aside>
 
-      <fieldset id="variationFieldset">
-        <legend>Variationen</legend>
-        <label><input type="checkbox" value="double_in" /> Double In</label>
-        <label><input type="checkbox" value="double_out" /> Double Out</label>
-        <label><input type="checkbox" value="master_out" /> Master Out</label>
-        <label><input type="checkbox" value="cut_throat" /> Cut-Throat</label>
-      </fieldset>
+    <section class="content">
+      <section id="playView" class="view active">
+        <h3>Spielen</h3>
 
-      <div class="row compact">
-        <label for="legsToWinSet">Legs pro Set</label>
-        <input id="legsToWinSet" type="number" min="1" max="9" value="3" />
-      </div>
+        <div class="card-grid">
+          <article class="card">
+            <h4>Spiel wählen</h4>
+            <div class="row">
+              <label for="gameMode">Spieltyp</label>
+              <select id="gameMode">
+                <option value="x01" selected>X01</option>
+                <option value="cricket">Cricket</option>
+                <option value="shanghai">Shanghai</option>
+              </select>
+            </div>
 
-      <div class="controls">
-        <button id="saveGameBtn">Spielmodus speichern</button>
-      </div>
-    </section>
+            <div id="x01Config" class="stack">
+              <div class="row">
+                <label for="x01Value">X01 Variante</label>
+                <select id="x01Value">
+                  <option value="301">301</option>
+                  <option value="501" selected>501</option>
+                  <option value="701">701</option>
+                  <option value="901">901</option>
+                </select>
+              </div>
 
-    <section class="players-panel">
-      <h2>Spieler (max. 4)</h2>
-      <div class="player-grid">
-        <input id="player1" type="text" placeholder="Spieler 1" value="Player 1" />
-        <input id="player2" type="text" placeholder="Spieler 2" value="Player 2" />
-        <input id="player3" type="text" placeholder="Spieler 3" />
-        <input id="player4" type="text" placeholder="Spieler 4" />
-      </div>
-      <div class="controls">
-        <button id="savePlayersBtn">Spieler speichern</button>
-      </div>
-      <div id="playersTable" class="table-wrap"></div>
-    </section>
+              <div class="inline-grid">
+                <div>
+                  <label for="inMode">In</label>
+                  <select id="inMode">
+                    <option value="single" selected>Single-In</option>
+                    <option value="double">Double-In</option>
+                  </select>
+                </div>
+                <div>
+                  <label for="outMode">Out</label>
+                  <select id="outMode">
+                    <option value="single" selected>Single-Out</option>
+                    <option value="double">Double-Out</option>
+                    <option value="master">Master-Out</option>
+                  </select>
+                </div>
+              </div>
+            </div>
 
-    <section class="history-panel">
-      <h2>Checkout-Historie</h2>
-      <div id="turnHistory" class="history-list"></div>
-    </section>
+            <div id="cricketConfig" class="stack hidden">
+              <label class="checkline"><input id="cutThroat" type="checkbox" /> Cut-Throat</label>
+            </div>
+          </article>
 
-    <section class="stats-panel">
-      <h2>Statistiken</h2>
-      <div id="matchStats"></div>
-      <div id="playerStats" class="table-wrap"></div>
-    </section>
+          <article class="card">
+            <h4>Spieler (1-4)</h4>
+            <div class="player-grid">
+              <input id="player1" type="text" placeholder="Spieler 1" value="Player 1" />
+              <input id="player2" type="text" placeholder="Spieler 2" value="Player 2" />
+              <input id="player3" type="text" placeholder="Spieler 3" />
+              <input id="player4" type="text" placeholder="Spieler 4" />
+            </div>
+            <div class="row compact">
+              <label for="legsToWinSet">Legs pro Set</label>
+              <input id="legsToWinSet" type="number" min="1" max="9" value="3" />
+            </div>
+          </article>
+        </div>
 
-    <section class="diag">
-      <p><span class="muted">Quelle:</span> <span id="source">init</span></p>
-      <p><span class="muted">Position:</span> <span id="position">-</span></p>
-      <p><span class="muted">Update:</span> <span id="updatedAt">-</span></p>
+        <div class="controls">
+          <button id="startMatchBtn">Spiel übernehmen</button>
+          <button id="simulateBtn" class="ghost">Demo-Wurf</button>
+          <button id="undoBtn" class="warn">Undo letzter Dart</button>
+          <button id="reloadBtn" class="ghost">Neu laden</button>
+        </div>
+
+        <article class="card">
+          <h4>Checkout-Historie (Turns)</h4>
+          <div id="turnHistory" class="history-list"></div>
+        </article>
+      </section>
+
+      <section id="playersView" class="view">
+        <h3>Spieler verwalten</h3>
+        <article class="card">
+          <p class="muted">Aktive Spieler und Matchwerte</p>
+          <div id="playersTable" class="table-wrap"></div>
+        </article>
+      </section>
+
+      <section id="statsView" class="view">
+        <h3>Statistik</h3>
+        <article class="card">
+          <h4>Match</h4>
+          <div id="matchStats"></div>
+        </article>
+        <article class="card">
+          <h4>Spieler</h4>
+          <div id="playerStats" class="table-wrap"></div>
+        </article>
+      </section>
+
+      <section id="settingsView" class="view">
+        <h3>Einstellungen</h3>
+        <article class="card">
+          <div class="row compact">
+            <label for="refreshMs">Refresh Intervall (ms)</label>
+            <input id="refreshMs" type="number" min="250" max="5000" step="50" value="500" />
+          </div>
+          <div class="controls">
+            <button id="saveSettingsBtn">Einstellungen speichern</button>
+          </div>
+          <p class="muted">API: <span id="source">-</span> | Position: <span id="position">-</span> | Update: <span id="updatedAt">-</span></p>
+        </article>
+      </section>
     </section>
   </main>
 

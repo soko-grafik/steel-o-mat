@@ -1,0 +1,23 @@
+{
+  "vote_threshold_mm": 25.0,
+  "cameras": [
+    {
+      "name": "cam-left",
+      "index": 0,
+      "enabled": true,
+      "homography": [[1, 0, -300], [0, -1, 300], [0, 0, 1]]
+    },
+    {
+      "name": "cam-center",
+      "index": 1,
+      "enabled": true,
+      "homography": [[1, 0, -300], [0, -1, 300], [0, 0, 1]]
+    },
+    {
+      "name": "cam-right",
+      "index": 2,
+      "enabled": true,
+      "homography": [[1, 0, -300], [0, -1, 300], [0, 0, 1]]
+    }
+  ]
+}
