@@ -19,25 +19,78 @@ class CameraReading:
     board_tip_mm: tuple[float, float] | None
 
 
+def open_video_capture(index: int, width: int = 640, height: int = 480, fps: int = 30) -> Any:
+    """Helper to open VideoCapture with fallbacks for Windows backends."""
+    if cv2 is None:
+        # Return something that mimics a closed capture if cv2 is missing
+        class DummyCapture:
+            def isOpened(self) -> bool: return False
+            def release(self) -> None: pass
+        return DummyCapture()
+
+    def apply_settings(c: Any) -> Any:
+        c.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+        c.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+        c.set(cv2.CAP_PROP_FPS, fps)
+        return c
+
+    # Try DSHOW first (fastest on Windows)
+    cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
+    if cap.isOpened():
+        return apply_settings(cap)
+    cap.release()
+
+    # Try MSMF (modern Windows)
+    cap = cv2.VideoCapture(index, cv2.CAP_MSMF)
+    if cap.isOpened():
+        return apply_settings(cap)
+    cap.release()
+
+    # Default backend
+    cap = cv2.VideoCapture(index)
+    return apply_settings(cap)
+
+
 class CameraStream:
-    def __init__(self, name: str, index: int, homography: list[list[float]] | None) -> None:
+    def __init__(
+        self,
+        name: str,
+        index: int,
+        homography: list[list[float]] | None,
+        width: int = 640,
+        height: int = 480,
+        fps: int = 30,
+        demo_image_path: str | None = None,
+    ) -> None:
         if cv2 is None:
             raise RuntimeError("opencv-python is required. Install requirements.txt first.")
         self.name = name
         self.index = index
         self.homography = None if homography is None else np.array(homography, dtype=np.float32)
-        self.capture = cv2.VideoCapture(index, cv2.CAP_DSHOW)
-        if not self.capture.isOpened():
-            raise RuntimeError(f"Unable to open camera index {index} ({name}).")
+        self.demo_image_path = demo_image_path
+        
+        if self.demo_image_path:
+            self.capture = None
+        else:
+            self.capture = open_video_capture(index, width, height, fps)
+            if not self.capture.isOpened():
+                raise RuntimeError(f"Unable to open camera index {index} ({name}).")
+        
         self.background_gray: np.ndarray | None = None
 
     def close(self) -> None:
-        self.capture.release()
+        if self.capture:
+            self.capture.release()
 
     def grab_background(self) -> None:
-        ok, frame = self.capture.read()
-        if not ok:
-            raise RuntimeError(f"Could not read background frame from camera '{self.name}'.")
+        if self.demo_image_path:
+            frame = cv2.imread(self.demo_image_path)
+            if frame is None:
+                raise RuntimeError(f"Could not read demo image from {self.demo_image_path}")
+        else:
+            ok, frame = self.capture.read()
+            if not ok:
+                raise RuntimeError(f"Could not read background frame from camera '{self.name}'.")
         self.background_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
     def _detect_tip_pixel(self, frame: Any) -> tuple[int, int] | None:
@@ -79,9 +132,14 @@ class CameraStream:
         return float(dst[0, 0, 0]), float(dst[0, 0, 1])
 
     def read(self) -> CameraReading:
-        ok, frame = self.capture.read()
-        if not ok:
-            raise RuntimeError(f"Could not read frame from camera '{self.name}'.")
+        if self.demo_image_path:
+            frame = cv2.imread(self.demo_image_path)
+            if frame is None:
+                raise RuntimeError(f"Could not read demo image from {self.demo_image_path}")
+        else:
+            ok, frame = self.capture.read()
+            if not ok:
+                raise RuntimeError(f"Could not read frame from camera '{self.name}'.")
         tip_px = self._detect_tip_pixel(frame)
         tip_mm = self._project_to_board(tip_px)
         return CameraReading(self.name, frame, tip_px, tip_mm)

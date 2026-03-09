@@ -18,6 +18,9 @@ class CameraConfig:
 class SystemConfig:
     cameras: list[CameraConfig]
     vote_threshold_mm: float = 25.0
+    width: int = 640
+    height: int = 480
+    fps: int = 30
 
 
 def _parse_camera(raw: dict[str, Any]) -> CameraConfig:
@@ -36,4 +39,7 @@ def load_config(path: str | Path) -> SystemConfig:
     return SystemConfig(
         cameras=cameras,
         vote_threshold_mm=float(data.get("vote_threshold_mm", 25.0)),
+        width=int(data.get("width", 640)),
+        height=int(data.get("height", 480)),
+        fps=int(data.get("fps", 30)),
     )

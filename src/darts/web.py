@@ -11,7 +11,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from .camera import CameraStream
+from .camera import CameraStream, open_video_capture
+from .calibration_auto import detect_dartboard
 from .config import load_config
 from .fusion import fuse_points
 from .runtime import RuntimeState
@@ -27,14 +28,27 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _camera_worker(runtime: RuntimeState, stop_event: threading.Event, config_path: str) -> None:
+def _camera_worker(runtime: RuntimeState, stop_event: threading.Event, config_path: str, demo: bool = False) -> None:
     cfg = load_config(config_path)
     streams: list[CameraStream] = []
+    demo_dir = Path(__file__).resolve().parents[2] / "config" / "demoCams"
     try:
         for cam in cfg.cameras:
             if not cam.enabled:
                 continue
-            streams.append(CameraStream(cam.name, cam.index, cam.homography))
+            
+            demo_image_path = None
+            if demo:
+                img_path = demo_dir / f"cam{cam.index+1}.jpg"
+                if img_path.exists():
+                    demo_image_path = str(img_path)
+
+            streams.append(
+                CameraStream(
+                    cam.name, cam.index, cam.homography, width=cfg.width, height=cfg.height, fps=cfg.fps,
+                    demo_image_path=demo_image_path
+                )
+            )
 
         if not streams:
             return
@@ -59,12 +73,21 @@ def _camera_worker(runtime: RuntimeState, stop_event: threading.Event, config_pa
             stream.close()
 
 
-def _make_handler(runtime: RuntimeState, root: Path, config_path: str) -> type[SimpleHTTPRequestHandler]:
+def _make_handler(
+    runtime: RuntimeState, root: Path, config_path: str, demo: bool = False
+) -> type[SimpleHTTPRequestHandler]:
     config_file = Path(config_path)
+    demo_dir = Path(__file__).resolve().parents[2] / "config" / "demoCams"
 
     def read_camera_config() -> dict[str, Any]:
         if not config_file.exists():
-            return {"vote_threshold_mm": 25.0, "cameras": []}
+            return {
+                "vote_threshold_mm": 25.0,
+                "width": 640,
+                "height": 480,
+                "fps": 30,
+                "cameras": [],
+            }
         return json.loads(config_file.read_text(encoding="utf-8"))
 
     def write_camera_config(payload: dict[str, Any]) -> None:
@@ -73,6 +96,9 @@ def _make_handler(runtime: RuntimeState, root: Path, config_path: str) -> type[S
 
     def validate_camera_config(payload: dict[str, Any]) -> dict[str, Any]:
         vote_threshold = float(payload.get("vote_threshold_mm", 25.0))
+        width = int(payload.get("width", 640))
+        height = int(payload.get("height", 480))
+        fps = int(payload.get("fps", 30))
         raw_cameras = payload.get("cameras", [])
         if not isinstance(raw_cameras, list):
             raise ValueError("cameras must be an array")
@@ -92,20 +118,35 @@ def _make_handler(runtime: RuntimeState, root: Path, config_path: str) -> type[S
                 }
             )
 
-        return {"vote_threshold_mm": vote_threshold, "cameras": cameras}
+        return {
+            "vote_threshold_mm": vote_threshold,
+            "width": width,
+            "height": height,
+            "fps": fps,
+            "cameras": cameras,
+        }
 
     def list_usb_cameras(max_devices: int = 10) -> list[dict[str, Any]]:
+        if demo:
+            return [
+                {"index": 0, "label": "Demo Camera 1"},
+                {"index": 1, "label": "Demo Camera 2"},
+                {"index": 2, "label": "Demo Camera 3"},
+            ]
         try:
             import cv2
         except ImportError:
             return []
 
         devices: list[dict[str, Any]] = []
+        cfg = read_camera_config()
         for index in range(max_devices):
-            cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
-            if not cap.isOpened():
-                cap.release()
-                cap = cv2.VideoCapture(index)
+            cap = open_video_capture(
+                index,
+                width=int(cfg.get("width", 640)),
+                height=int(cfg.get("height", 480)),
+                fps=int(cfg.get("fps", 30)),
+            )
             if not cap.isOpened():
                 cap.release()
                 continue
@@ -155,24 +196,53 @@ def _make_handler(runtime: RuntimeState, root: Path, config_path: str) -> type[S
             self.wfile.write(encoded)
 
         def _send_jpeg(self, image_data: bytes, status: HTTPStatus = HTTPStatus.OK) -> None:
-            self.send_response(status)
-            self.send_header("Content-Type", "image/jpeg")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("Content-Length", str(len(image_data)))
-            self.end_headers()
-            self.wfile.write(image_data)
+            try:
+                self.send_response(status)
+                self.send_header("Content-Type", "image/jpeg")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", str(len(image_data)))
+                self.end_headers()
+                self.wfile.write(image_data)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
 
         def _stream_mjpeg(self, index: int) -> None:
+            if demo:
+                img_path = demo_dir / f"cam{index+1}.jpg"
+                if not img_path.exists():
+                    self._send_json({"ok": False, "error": "demo image not found"}, status=HTTPStatus.NOT_FOUND)
+                    return
+                jpg = img_path.read_bytes()
+                boundary = "frame"
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", f"multipart/x-mixed-replace; boundary={boundary}")
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                try:
+                    while True:
+                        self.wfile.write(f"--{boundary}\r\n".encode("utf-8"))
+                        self.wfile.write(b"Content-Type: image/jpeg\r\n")
+                        self.wfile.write(f"Content-Length: {len(jpg)}\r\n\r\n".encode("utf-8"))
+                        self.wfile.write(jpg)
+                        self.wfile.write(b"\r\n")
+                        time.sleep(1.0)
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+                return
+
             try:
                 import cv2
             except ImportError:
                 self._send_json({"ok": False, "error": "opencv not installed"}, status=HTTPStatus.SERVICE_UNAVAILABLE)
                 return
 
-            cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
-            if not cap.isOpened():
-                cap.release()
-                cap = cv2.VideoCapture(index)
+            cfg = read_camera_config()
+            cap = open_video_capture(
+                index,
+                width=int(cfg.get("width", 640)),
+                height=int(cfg.get("height", 480)),
+                fps=int(cfg.get("fps", 30)),
+            )
             if not cap.isOpened():
                 cap.release()
                 self._send_json({"ok": False, "error": f"camera {index} not available"}, status=HTTPStatus.NOT_FOUND)
@@ -248,13 +318,27 @@ def _make_handler(runtime: RuntimeState, root: Path, config_path: str) -> type[S
                     self._send_json({"ok": False, "error": "invalid camera index"}, status=HTTPStatus.BAD_REQUEST)
                     return
 
+                if demo:
+                    img_path = demo_dir / f"cam{index+1}.jpg"
+                    if not img_path.exists():
+                        self._send_json({"ok": False, "error": "demo image not found"}, status=HTTPStatus.NOT_FOUND)
+                        return
+                    self._send_jpeg(img_path.read_bytes())
+                    return
+
                 try:
                     import cv2
                 except ImportError:
                     self._send_json({"ok": False, "error": "opencv not installed"}, status=HTTPStatus.SERVICE_UNAVAILABLE)
                     return
 
-                cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
+                cfg = read_camera_config()
+                cap = open_video_capture(
+                    index,
+                    width=int(cfg.get("width", 640)),
+                    height=int(cfg.get("height", 480)),
+                    fps=int(cfg.get("fps", 30)),
+                )
                 if not cap.isOpened():
                     cap.release()
                     self._send_json({"ok": False, "error": f"camera {index} not available"}, status=HTTPStatus.NOT_FOUND)
@@ -384,6 +468,45 @@ def _make_handler(runtime: RuntimeState, root: Path, config_path: str) -> type[S
                     self._send_json({"ok": False, "error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
                 return
 
+            if self.path == "/api/auto-calibrate":
+                data = self._read_json()
+                try:
+                    index = int(data.get("index", 0))
+                    import cv2
+                    
+                    frame = None
+                    if demo:
+                        img_path = demo_dir / f"cam{index+1}.jpg"
+                        if img_path.exists():
+                            frame = cv2.imread(str(img_path))
+                    else:
+                        cfg = read_camera_config()
+                        cap = open_video_capture(
+                            index,
+                            width=int(cfg.get("width", 640)),
+                            height=int(cfg.get("height", 480)),
+                            fps=int(cfg.get("fps", 30)),
+                        )
+                        if cap.isOpened():
+                            ok, f = cap.read()
+                            if ok:
+                                frame = f
+                            cap.release()
+
+                    if frame is None:
+                        self._send_json({"ok": False, "error": "Could not read frame for auto-calibration"}, status=HTTPStatus.NOT_FOUND)
+                        return
+
+                    points = detect_dartboard(frame)
+                    if points is None:
+                        self._send_json({"ok": False, "error": "Automated detection failed. Please use manual calibration."}, status=HTTPStatus.UNPROCESSABLE_ENTITY)
+                        return
+
+                    self._send_json({"ok": True, "points": points})
+                except Exception as exc:
+                    self._send_json({"ok": False, "error": str(exc)}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
+                return
+
             if self.path == "/api/simulate":
                 data = self._read_json()
                 if "x_mm" in data and "y_mm" in data:
@@ -410,18 +533,16 @@ def main() -> int:
     runtime = RuntimeState()
 
     stop_event = threading.Event()
-    worker: threading.Thread | None = None
-    if not args.demo:
-        worker = threading.Thread(
-            target=_camera_worker,
-            args=(runtime, stop_event, args.config),
-            daemon=True,
-            name="camera-worker",
-        )
-        worker.start()
+    worker = threading.Thread(
+        target=_camera_worker,
+        args=(runtime, stop_event, args.config, args.demo),
+        daemon=True,
+        name="camera-worker",
+    )
+    worker.start()
 
     web_root = Path(__file__).resolve().parents[2] / "web"
-    handler = _make_handler(runtime, web_root, args.config)
+    handler = _make_handler(runtime, web_root, args.config, demo=args.demo)
     server = ThreadingHTTPServer((args.host, args.port), handler)
 
     print(f"Web UI running at http://{args.host}:{args.port}")

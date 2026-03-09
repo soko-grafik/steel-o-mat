@@ -66,11 +66,14 @@ const updatedAtEl = document.getElementById("updatedAt");
 const saveSettingsBtn = document.getElementById("saveSettingsBtn");
 const refreshMsEl = document.getElementById("refreshMs");
 const voteThresholdEl = document.getElementById("voteThreshold");
+const camResolutionEl = document.getElementById("camResolution");
+const camFpsEl = document.getElementById("camFps");
 const calibrationCameraEl = document.getElementById("calibrationCamera");
 const calibrationStreamEl = document.getElementById("calibrationStream");
 const calibrationCanvasEl = document.getElementById("calibrationCanvas");
 const calibrationStepTextEl = document.getElementById("calibrationStepText");
 const startCalibrationBtn = document.getElementById("startCalibrationBtn");
+const autoCalibrationBtn = document.getElementById("autoCalibrationBtn");
 const resetCalibrationBtn = document.getElementById("resetCalibrationBtn");
 const saveCalibrationBtn = document.getElementById("saveCalibrationBtn");
 const camFields = [
@@ -98,12 +101,25 @@ let currentCameraConfig = { vote_threshold_mm: 25, cameras: [] };
 let availableCameras = [];
 let calibrationImagePoints = [];
 let calibrationActive = false;
+// Board points defined as the Right-Outer Corner of D20, D6, D3, D11
 const calibrationBoardPoints = [
-  [0, 170],
-  [170, 0],
-  [0, -170],
-  [-170, 0],
+  [170 * Math.sin(Math.PI / 20), 170 * Math.cos(Math.PI / 20)], // Top (D20-D1 wire)
+  [170 * Math.cos(-Math.PI / 20), 170 * Math.sin(-Math.PI / 20)], // Right (D6-D13 wire)
+  [-170 * Math.sin(Math.PI / 20), -170 * Math.cos(Math.PI / 20)], // Bottom (D3-D19 wire)
+  [-170 * Math.cos(-Math.PI / 20), -170 * Math.sin(-Math.PI / 20)], // Left (D11-D14 wire)
 ];
+
+const tabItems = Array.from(document.querySelectorAll(".tab-item"));
+const tabContents = Array.from(document.querySelectorAll(".tab-content"));
+
+function selectTab(tabId) {
+  tabContents.forEach((content) => content.classList.toggle("active", content.id === tabId));
+  tabItems.forEach((item) => item.classList.toggle("active", item.dataset.tab === tabId));
+}
+
+tabItems.forEach((item) => {
+  item.addEventListener("click", () => selectTab(item.dataset.tab));
+});
 
 function setInputValueIfIdle(inputEl, value) {
   if (!inputEl) return;
@@ -250,10 +266,18 @@ function renderCameraSelectOptions() {
   calibrationNoneOption.textContent = "Keine";
   calibrationCameraEl.appendChild(calibrationNoneOption);
 
+  // Check which cameras have homography in current config
+  const calibratedIndices = new Set(
+    (currentCameraConfig.cameras || [])
+      .filter((c) => Array.isArray(c.homography))
+      .map((c) => Number(c.index))
+  );
+
   cameraOptions.forEach((cam) => {
     const option = document.createElement("option");
     option.value = String(cam.index);
-    option.textContent = `${cam.label} (#${cam.index})`;
+    const isCalibrated = calibratedIndices.has(Number(cam.index));
+    option.textContent = `${isCalibrated ? "✅ " : ""}${cam.label} (#${cam.index})`;
     calibrationCameraEl.appendChild(option);
   });
   if (currentCalibrationValue) calibrationCameraEl.value = currentCalibrationValue;
@@ -281,6 +305,44 @@ function bindCalibrationStream() {
   calibrationStreamEl.src = `/api/camera-stream?index=${encodeURIComponent(selected)}&t=${Date.now()}`;
 }
 
+function solveHomography(src, dst) {
+  const matrix = [];
+  for (let i = 0; i < 4; i++) {
+    const [x, y] = src[i];
+    const [u, v] = dst[i];
+    matrix.push([x, y, 1, 0, 0, 0, -u * x, -u * y, u]);
+    matrix.push([0, 0, 0, x, y, 1, -v * x, -v * y, v]);
+  }
+
+  // Gaussian elimination
+  for (let i = 0; i < 8; i++) {
+    let pivot = i;
+    for (let j = i + 1; j < 8; j++) {
+      if (Math.abs(matrix[j][i]) > Math.abs(matrix[pivot][i])) pivot = j;
+    }
+    [matrix[i], matrix[pivot]] = [matrix[pivot], matrix[i]];
+    const div = matrix[i][i];
+    for (let j = i; j < 9; j++) matrix[i][j] /= div;
+    for (let j = 0; j < 8; j++) {
+      if (j !== i) {
+        const mult = matrix[j][i];
+        for (let k = i; k < 9; k++) matrix[j][k] -= mult * matrix[i][k];
+      }
+    }
+  }
+  const h = matrix.map((row) => row[8]);
+  return [
+    [h[0], h[1], h[2]],
+    [h[3], h[4], h[5]],
+    [h[6], h[7], 1],
+  ];
+}
+
+function transformPoint(h, x, y) {
+  const w = h[2][0] * x + h[2][1] * y + h[2][2];
+  return [(h[0][0] * x + h[0][1] * y + h[0][2]) / w, (h[1][0] * x + h[1][1] * y + h[1][2]) / w];
+}
+
 function drawCalibrationOverlay() {
   const canvas = calibrationCanvasEl;
   const image = calibrationStreamEl;
@@ -293,21 +355,113 @@ function drawCalibrationOverlay() {
   canvas.height = height;
 
   ctx.clearRect(0, 0, width, height);
+
+  // Use either calibration points or saved homography for preview
+  let hMatrix = null;
+  if (calibrationImagePoints.length === 4) {
+    // Note: board points are defined as [0, 170], [170, 0], [0, -170], [-170, 0]
+    // which corresponds to Top, Right, Bottom, Left.
+    hMatrix = solveHomography(calibrationBoardPoints, calibrationImagePoints);
+  } else if (!calibrationActive) {
+    const selected = Number(calibrationCameraEl.value);
+    const cam = (currentCameraConfig.cameras || []).find((c) => Number(c.index) === selected);
+    if (cam && Array.isArray(cam.homography)) {
+      // Invert backend homography (img -> board) to (board -> img)
+      // For a simple visualization, we can just re-solve if we had 4 points saved,
+      // but since we only have the matrix, we'd need a matrix inverse.
+      // For now, let's just use the active points if they exist.
+    }
+  }
+
+  if (hMatrix) {
+    const rings = [170, 162, 107, 99, 16, 6.35];
+    const steps = 40;
+
+    // Draw filled board background
+    ctx.beginPath();
+    for (let i = 0; i <= steps; i++) {
+      const angle = (i / steps) * Math.PI * 2;
+      const pt = transformPoint(hMatrix, Math.sin(angle) * 170, Math.cos(angle) * 170);
+      if (i === 0) ctx.moveTo(pt[0], pt[1]);
+      else ctx.lineTo(pt[0], pt[1]);
+    }
+    ctx.fillStyle = "rgba(41, 74, 122, 0.4)"; // Semi-transparent blue
+    ctx.fill();
+
+    // Draw segment 20 in red
+    ctx.beginPath();
+    const startAngle = -Math.PI / 20; // -9 degrees
+    const endAngle = Math.PI / 20; // +9 degrees
+    const innerPtStart = transformPoint(hMatrix, Math.sin(startAngle) * 6.35, Math.cos(startAngle) * 6.35);
+    ctx.moveTo(innerPtStart[0], innerPtStart[1]);
+    for (let i = 0; i <= 10; i++) {
+      const a = startAngle + (i / 10) * (endAngle - startAngle);
+      const pt = transformPoint(hMatrix, Math.sin(a) * 170, Math.cos(a) * 170);
+      ctx.lineTo(pt[0], pt[1]);
+    }
+    for (let i = 10; i >= 0; i--) {
+      const a = startAngle + (i / 10) * (endAngle - startAngle);
+      const pt = transformPoint(hMatrix, Math.sin(a) * 6.35, Math.cos(a) * 6.35);
+      ctx.lineTo(pt[0], pt[1]);
+    }
+    ctx.closePath();
+    ctx.fillStyle = "rgba(194, 15, 34, 0.6)"; // Semi-transparent red
+    ctx.fill();
+
+    // Draw rings (white lines)
+    ctx.strokeStyle = "rgba(255,255,255,0.7)";
+    ctx.lineWidth = 1.5;
+    rings.forEach((r) => {
+      ctx.beginPath();
+      for (let i = 0; i <= steps; i++) {
+        const angle = (i / steps) * Math.PI * 2;
+        const pt = transformPoint(hMatrix, Math.sin(angle) * r, Math.cos(angle) * r);
+        if (i === 0) ctx.moveTo(pt[0], pt[1]);
+        else ctx.lineTo(pt[0], pt[1]);
+      }
+      ctx.stroke();
+    });
+
+    // Draw radial lines
+    for (let s = 0; s < 20; s++) {
+      const angle = (s / 20) * Math.PI * 2 + Math.PI / 20;
+      const pt1 = transformPoint(hMatrix, Math.sin(angle) * 6.35, Math.cos(angle) * 6.35);
+      const pt2 = transformPoint(hMatrix, Math.sin(angle) * 170, Math.cos(angle) * 170);
+      ctx.beginPath();
+      ctx.moveTo(pt1[0], pt1[1]);
+      ctx.lineTo(pt2[0], pt2[1]);
+      ctx.stroke();
+    }
+  } else {
+    // Fallback if not 4 points: draw simple circles in center to guide user
+    const centerX = width / 2;
+    const centerY = height / 2;
+    const scale = Math.min(width, height) / 400;
+
+    ctx.strokeStyle = "rgba(255,255,255,0.3)";
+    ctx.lineWidth = 2;
+    [170, 162, 107, 99, 16, 6.35].forEach((r) => {
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, r * scale, 0, Math.PI * 2);
+      ctx.stroke();
+    });
+  }
+
+  // Draw target points for calibration
   const centerX = width / 2;
   const centerY = height / 2;
   const scale = Math.min(width, height) / 400;
 
-  ctx.strokeStyle = "rgba(255,255,255,0.45)";
-  ctx.lineWidth = 2;
-  [170, 162, 107, 99, 16, 6].forEach((r) => {
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, r * scale, 0, Math.PI * 2);
-    ctx.stroke();
-  });
-
   calibrationBoardPoints.forEach((p, idx) => {
-    const x = centerX + p[0] * scale;
-    const y = centerY - p[1] * scale;
+    let x, y;
+    if (hMatrix) {
+      const pt = transformPoint(hMatrix, p[0], p[1]);
+      x = pt[0];
+      y = pt[1];
+    } else {
+      x = centerX + p[0] * scale;
+      y = centerY - p[1] * scale;
+    }
     const isCurrent = idx === calibrationImagePoints.length && calibrationActive;
     ctx.beginPath();
     ctx.fillStyle = isCurrent ? "#ffd84a" : "rgba(255,255,255,0.65)";
@@ -315,6 +469,7 @@ function drawCalibrationOverlay() {
     ctx.fill();
   });
 
+  // Draw clicked points
   calibrationImagePoints.forEach((p) => {
     ctx.beginPath();
     ctx.fillStyle = "#ff314b";
@@ -337,8 +492,12 @@ function updateCalibrationStepText() {
 }
 
 function applyCameraConfig(config) {
-  currentCameraConfig = config || { vote_threshold_mm: 25, cameras: [] };
+  currentCameraConfig = config || { vote_threshold_mm: 25, width: 640, height: 480, fps: 30, cameras: [] };
   setInputValueIfIdle(voteThresholdEl, String(config.vote_threshold_mm ?? 25));
+  if (config.width && config.height) {
+    setInputValueIfIdle(camResolutionEl, `${config.width}x${config.height}`);
+  }
+  setInputValueIfIdle(camFpsEl, String(config.fps ?? 30));
   const cams = Array.isArray(config.cameras) ? config.cameras : [];
   camFields.forEach((field, idx) => {
     const cam = cams[idx];
@@ -355,6 +514,7 @@ function applyCameraConfig(config) {
 function buildCameraPayload() {
   const existingCameras = Array.isArray(currentCameraConfig.cameras) ? currentCameraConfig.cameras : [];
   const homographyByIndex = new Map(existingCameras.map((cam) => [Number(cam.index), cam.homography]));
+  const [width, height] = camResolutionEl.value.split("x").map(Number);
   const cameras = camFields
     .map((field, idx) => {
       const selected = field.device.value;
@@ -372,6 +532,9 @@ function buildCameraPayload() {
 
   return {
     vote_threshold_mm: Number.parseFloat(voteThresholdEl.value || "25"),
+    width,
+    height,
+    fps: Number.parseInt(camFpsEl.value || "30", 10),
     cameras,
   };
 }
@@ -640,6 +803,36 @@ startCalibrationBtn.addEventListener("click", () => {
   updateCalibrationStepText();
 });
 
+autoCalibrationBtn.addEventListener("click", async () => {
+  try {
+    const index = Number.parseInt(calibrationCameraEl.value || "", 10);
+    if (Number.isNaN(index)) throw new Error("Bitte Kamera wählen");
+
+    titleStatusEl.textContent = "Auto-Kalibrierung läuft...";
+    const res = await fetch("/api/auto-calibrate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ index }),
+    });
+
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || "Unbekannter Fehler");
+
+    // Scale points from original resolution to canvas resolution
+    const rect = calibrationCanvasEl.getBoundingClientRect();
+    const scaleX = rect.width / data.width;
+    const scaleY = rect.height / data.height;
+
+    calibrationImagePoints = data.points.map((p) => [p[0] * scaleX, p[1] * scaleY]);
+    calibrationActive = true;
+    drawCalibrationOverlay();
+    updateCalibrationStepText();
+    titleStatusEl.textContent = "Auto-Kalibrierung erfolgreich. Bitte prüfen und speichern.";
+  } catch (err) {
+    titleStatusEl.textContent = `Auto-Kalibrierung fehlgeschlagen: ${err.message}`;
+  }
+});
+
 resetCalibrationBtn.addEventListener("click", () => {
   calibrationImagePoints = [];
   calibrationActive = false;
@@ -660,6 +853,11 @@ saveCalibrationBtn.addEventListener("click", async () => {
       image_points: calibrationImagePoints,
       board_points: calibrationBoardPoints,
     });
+    
+    // Refresh local config to update calibrated indicators
+    currentCameraConfig = await fetchCameraConfig();
+    renderCameraSelectOptions();
+    
     calibrationActive = false;
     updateCalibrationStepText();
     titleStatusEl.textContent = "Kalibrierung gespeichert";

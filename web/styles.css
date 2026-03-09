@@ -150,6 +150,43 @@ body {
 
 .view { display: none; }
 .view.active { display: block; }
+
+.tab-bar {
+  display: flex;
+  gap: 0.5rem;
+  border-bottom: 1px solid #343a45;
+  margin-bottom: 1.2rem;
+  padding-bottom: 0.4rem;
+}
+
+.tab-item {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--muted);
+  border-radius: 8px;
+  padding: 0.45rem 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 200ms ease;
+}
+
+.tab-item:hover {
+  background: #252a33;
+  color: var(--ink);
+}
+
+.tab-item.active {
+  background: #2b313b;
+  border-color: #4a515e;
+  color: #fff;
+}
+
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+.border-top { border-top: 1px solid #343a45; }
+.pt-4 { padding-top: 1rem; }
+.mt-4 { margin-top: 1rem; }
 .play-step { display: none; }
 .play-step.active { display: block; }
 
