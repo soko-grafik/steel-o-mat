@@ -1,5 +1,5 @@
-const landingEl = document.getElementById("landing");
 const shellEl = document.getElementById("shell");
+const landingEl = document.getElementById("landing");
 const startAppBtn = document.getElementById("startAppBtn");
 const installBtn = document.getElementById("installBtn");
 
@@ -36,6 +36,13 @@ const startMatchBtn = document.getElementById("startMatchBtn");
 const simulateBtn = document.getElementById("simulateBtn");
 const undoBtn = document.getElementById("undoBtn");
 const reloadBtn = document.getElementById("reloadBtn");
+
+const playerListEl = document.getElementById("playerList");
+const newPlayerNameEl = document.getElementById("newPlayerName");
+const addGlobalPlayerBtn = document.getElementById("addGlobalPlayerBtn");
+const globalPlayerListEl = document.getElementById("globalPlayerList");
+
+let globalPlayers = [];
 
 const correctBtn = document.getElementById("correctBtn");
 const correctionSheetEl = document.getElementById("correctionSheet");
@@ -218,6 +225,63 @@ function getGamePayload() {
     game: "shanghai",
     variations: [],
   };
+}
+
+async function fetchGlobalPlayers() {
+  const res = await fetch("/api/players", { cache: "no-store" });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  globalPlayers = Array.isArray(data.players) ? data.players : [];
+  renderGlobalPlayers();
+}
+
+function renderGlobalPlayers() {
+  // Update datalist for setup
+  if (playerListEl) {
+    playerListEl.innerHTML = "";
+    globalPlayers.forEach((name) => {
+      const opt = document.createElement("option");
+      opt.value = name;
+      playerListEl.appendChild(opt);
+    });
+  }
+
+  // Update management list
+  if (globalPlayerListEl) {
+    globalPlayerListEl.innerHTML = "";
+    globalPlayers.forEach((name) => {
+      const item = document.createElement("div");
+      item.className = "player-manage-item";
+      item.innerHTML = `<span>${name}</span><button data-name="${name}">Entfernen</button>`;
+      item.querySelector("button").addEventListener("click", async () => {
+        const nextPlayers = globalPlayers.filter((n) => n !== name);
+        await saveGlobalPlayers(nextPlayers);
+      });
+      globalPlayerListEl.appendChild(item);
+    });
+  }
+}
+
+async function saveGlobalPlayers(players) {
+  try {
+    const data = await postJson("/api/players", { players });
+    globalPlayers = data.players || [];
+    renderGlobalPlayers();
+  } catch (err) {
+    titleStatusEl.textContent = `Fehler beim Speichern: ${err.message}`;
+  }
+}
+
+async function addGlobalPlayer() {
+  const name = newPlayerNameEl.value.trim();
+  if (!name) return;
+  if (globalPlayers.includes(name)) {
+    titleStatusEl.textContent = "Spieler existiert bereits";
+    return;
+  }
+  const nextPlayers = [...globalPlayers, name];
+  await saveGlobalPlayers(nextPlayers);
+  newPlayerNameEl.value = "";
 }
 
 async function fetchState() {
@@ -562,13 +626,6 @@ async function saveMatchSetup() {
   await postJson("/api/match", { players, legs_to_win_set: legs });
 }
 
-async function saveManagedPlayers() {
-  const players = managePlayerInputs.map((el) => el.value.trim()).filter((name) => name.length > 0).slice(0, 4);
-  validatePlayers(players);
-  const legs = Math.max(1, Number.parseInt(manageLegsToWinSetEl.value || "3", 10));
-  await postJson("/api/match", { players, legs_to_win_set: legs });
-}
-
 async function sendManualScore() {
   const points = Number.parseInt(manualDisplayEl.value || "0", 10);
   await postJson("/api/manual", { points, bed: "S" });
@@ -603,10 +660,6 @@ function renderPlayersTable(state) {
   playerInputs.forEach((input, idx) => {
     setInputValueIfIdle(input, players[idx]?.name || "");
   });
-  managePlayerInputs.forEach((input, idx) => {
-    setInputValueIfIdle(input, players[idx]?.name || "");
-  });
-  setInputValueIfIdle(manageLegsToWinSetEl, String(state.game?.legs_to_win_set ?? 3));
 }
 
 function renderStats(state) {
@@ -621,19 +674,54 @@ function renderStats(state) {
 function applyState(state) {
   const players = state.players || [];
   const activeIdx = state.match?.current_player_index ?? 0;
-  const active = players[activeIdx] || null;
-  const next = players.length > 1 ? players[(activeIdx + 1) % players.length] : active;
+  
+  // Update dynamic split-screen layout for up to 4 players
+  [0, 1, 2, 3].forEach((idx) => {
+    const areaEl = document.getElementById(`playerArea${idx}`);
+    if (!areaEl) return;
 
-  activeNameEl.textContent = active?.name || "-";
-  activeScoreEl.textContent = active?.remaining ?? active?.points ?? "-";
-  nextNameEl.textContent = next?.name || "-";
-  nextScoreEl.textContent = next?.remaining ?? next?.points ?? "-";
+    const p = players[idx];
+    if (!p) {
+      areaEl.classList.add("hidden");
+      return;
+    }
+
+    areaEl.classList.remove("hidden");
+    
+    const scoreEl = document.getElementById(`score${idx}`);
+    const nameEl = document.getElementById(`name${idx}`);
+    const avg3El = document.getElementById(`avg3_${idx}`);
+    const avg9El = document.getElementById(`avg9_${idx}`);
+    const throwEl = document.getElementById(`throw${idx}`);
+    const indicatorEl = areaEl.querySelector(".throw-indicator");
+
+    if (scoreEl) scoreEl.textContent = p.remaining ?? p.points ?? "-";
+    if (nameEl) nameEl.textContent = p.name || "-";
+    
+    areaEl.classList.toggle("active", idx === activeIdx);
+    if (indicatorEl) {
+      indicatorEl.classList.toggle("hidden", idx !== activeIdx);
+    }
+
+    const ps = state.stats?.players?.[p.name] || {};
+    if (avg3El) avg3El.textContent = Number(ps.average_per_turn ?? 0).toFixed(2);
+    if (avg9El) avg9El.textContent = Number(ps.average_per_dart ?? 0).toFixed(2);
+    if (throwEl) throwEl.textContent = idx === activeIdx ? state.match?.darts_in_turn ?? 0 : "0";
+  });
+
+  // Update match header
+  const matchInfoEl = document.getElementById("matchInfo");
+  if (matchInfoEl && state.game) {
+    matchInfoEl.textContent = `${state.game.game.toUpperCase()} Best of ${state.game.legs_to_win_set * 2 - 1} Legs`;
+  }
+  
+  const setScoreLeft = document.getElementById("setScoreLeft");
+  const setScoreRight = document.getElementById("setScoreRight");
+  if (setScoreLeft && players[0]) setScoreLeft.textContent = players[0].legs_won ?? 0;
+  if (setScoreRight && players[1]) setScoreRight.textContent = players[1].legs_won ?? 0;
+  // Note: For 3-4 players, we might need a more complex set score display, but sticking to 2 for the header pill for now as per design.
 
   titleStatusEl.textContent = `Set ${state.match?.set_number ?? "-"} | Leg ${state.match?.leg_number ?? "-"}`;
-
-  const matchStats = state.stats?.match || {};
-  matchAverageLiveEl.textContent = Number(matchStats.average_per_dart ?? 0).toFixed(2);
-  throwsCountLiveEl.textContent = String(matchStats.total_darts ?? 0);
 
   if (["301", "501", "701", "901"].includes(state.game?.game)) {
     setGameMode("x01");
@@ -686,6 +774,7 @@ startAppBtn.addEventListener("click", async () => {
     titleStatusEl.textContent = "Kamera-Konfig konnte nicht geladen werden";
   }
   restartPolling();
+  await fetchGlobalPlayers();
   drawCalibrationOverlay();
   updateCalibrationStepText();
 });
@@ -866,15 +955,7 @@ saveCalibrationBtn.addEventListener("click", async () => {
   }
 });
 
-savePlayersManageBtn.addEventListener("click", async () => {
-  try {
-    await saveManagedPlayers();
-    await refreshState();
-    titleStatusEl.textContent = "Spieler aktualisiert";
-  } catch (err) {
-    titleStatusEl.textContent = `Spieler-Update fehlgeschlagen: ${err.message}`;
-  }
-});
+addGlobalPlayerBtn.addEventListener("click", addGlobalPlayer);
 
 window.addEventListener("beforeinstallprompt", (event) => {
   event.preventDefault();

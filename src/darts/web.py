@@ -59,9 +59,14 @@ def _camera_worker(runtime: RuntimeState, stop_event: threading.Event, config_pa
         while not stop_event.is_set():
             points: list[tuple[float, float]] = []
             for stream in streams:
-                reading = stream.read()
-                if reading.board_tip_mm is not None:
-                    points.append(reading.board_tip_mm)
+                try:
+                    reading = stream.read()
+                    if reading.board_tip_mm is not None:
+                        points.append(reading.board_tip_mm)
+                except Exception as exc:
+                    # Log error but don't crash worker thread
+                    print(f"Error reading camera '{stream.name}': {exc}")
+                    time.sleep(0.5)  # Slow down on repeated errors
 
             fused = fuse_points(points, cfg.vote_threshold_mm)
             if fused is not None:
@@ -77,7 +82,21 @@ def _make_handler(
     runtime: RuntimeState, root: Path, config_path: str, demo: bool = False
 ) -> type[SimpleHTTPRequestHandler]:
     config_file = Path(config_path)
+    players_file = config_file.parent / "players.json"
     demo_dir = Path(__file__).resolve().parents[2] / "config" / "demoCams"
+
+    def read_players() -> list[str]:
+        if not players_file.exists():
+            return ["Player 1", "Player 2"]
+        try:
+            data = json.loads(players_file.read_text(encoding="utf-8"))
+            return data if isinstance(data, list) else ["Player 1", "Player 2"]
+        except Exception:
+            return ["Player 1", "Player 2"]
+
+    def write_players(players: list[str]) -> None:
+        players_file.parent.mkdir(parents=True, exist_ok=True)
+        players_file.write_text(json.dumps(sorted(list(set(players))), indent=2), encoding="utf-8")
 
     def read_camera_config() -> dict[str, Any]:
         if not config_file.exists():
@@ -180,11 +199,16 @@ def _make_handler(
             super().__init__(*args, directory=str(root), **kwargs)
 
         def _read_json(self) -> dict[str, Any]:
-            length = int(self.headers.get("Content-Length", "0"))
-            if length <= 0:
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if length <= 0:
+                    return {}
+                body = self.rfile.read(length)
+                if not body:
+                    return {}
+                return json.loads(body.decode("utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
                 return {}
-            body = self.rfile.read(length)
-            return json.loads(body.decode("utf-8"))
 
         def _send_json(self, payload: dict[str, Any], status: HTTPStatus = HTTPStatus.OK) -> None:
             encoded = json.dumps(payload).encode("utf-8")
@@ -276,6 +300,18 @@ def _make_handler(
                 cap.release()
 
         def do_GET(self) -> None:  # noqa: N802
+            try:
+                self._do_get_internal()
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            except Exception as exc:
+                print(f"Error handling GET {self.path}: {exc}")
+                try:
+                    self._send_json({"ok": False, "error": str(exc)}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
+                except Exception:
+                    pass
+
+        def _do_get_internal(self) -> None:
             parsed = urlparse(self.path)
             path = parsed.path
             query = parse_qs(parsed.query)
@@ -307,6 +343,9 @@ def _make_handler(
                 return
             if path == "/api/camera-config":
                 self._send_json(read_camera_config())
+                return
+            if path == "/api/players":
+                self._send_json({"players": read_players()})
                 return
             if path == "/api/cameras":
                 self._send_json({"cameras": list_usb_cameras()})
@@ -368,6 +407,18 @@ def _make_handler(
             return super().do_GET()
 
         def do_POST(self) -> None:  # noqa: N802
+            try:
+                self._do_post_internal()
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            except Exception as exc:
+                print(f"Error handling POST {self.path}: {exc}")
+                try:
+                    self._send_json({"ok": False, "error": str(exc)}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
+                except Exception:
+                    pass
+
+        def _do_post_internal(self) -> None:  # noqa: N802
             if self.path == "/api/game":
                 data = self._read_json()
                 try:
@@ -377,6 +428,18 @@ def _make_handler(
                         raise ValueError("variations must be an array")
                     updated = runtime.set_game(game=game, variations=[str(v) for v in variations])
                     self._send_json({"ok": True, "game": updated})
+                except ValueError as exc:
+                    self._send_json({"ok": False, "error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+                return
+
+            if self.path == "/api/players":
+                data = self._read_json()
+                try:
+                    players = data.get("players", [])
+                    if not isinstance(players, list):
+                        raise ValueError("players must be an array")
+                    write_players([str(p).strip() for p in players if str(p).strip()])
+                    self._send_json({"ok": True, "players": read_players()})
                 except ValueError as exc:
                     self._send_json({"ok": False, "error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
                 return

@@ -104,10 +104,13 @@
             </div>
 
             <div class="setup-group players">
-              <input id="player1" type="text" value="Player 1" placeholder="Spieler 1" />
-              <input id="player2" type="text" value="Player 2" placeholder="Spieler 2" />
-              <input id="player3" type="text" placeholder="Spieler 3" />
-              <input id="player4" type="text" placeholder="Spieler 4" />
+              <div class="player-select-row">
+                <input id="player1" type="text" list="playerList" placeholder="Spieler 1" />
+                <input id="player2" type="text" list="playerList" placeholder="Spieler 2" />
+                <input id="player3" type="text" list="playerList" placeholder="Spieler 3" />
+                <input id="player4" type="text" list="playerList" placeholder="Spieler 4" />
+              </div>
+              <datalist id="playerList"></datalist>
               <div>
                 <label for="legsToWinSet">Legs pro Set</label>
                 <input id="legsToWinSet" type="number" min="1" max="9" value="3" />
@@ -122,29 +125,95 @@
         </section>
 
         <section id="playStepMatch" class="play-step">
-          <h3>3. Match läuft</h3>
-          <section class="score-stage">
-            <article class="player-card red">
-              <p class="small">Aktiv</p>
-              <h3 id="activeName">Player 1</h3>
-              <p id="activeScore" class="big">501</p>
+          <div class="match-header">
+            <div class="match-meta">
+              <span id="matchInfo">501 Best of 3 Legs</span>
+            </div>
+            <div class="score-pill">
+              <span id="setScoreLeft">0</span>
+              <span class="pill-label">LEG</span>
+              <span id="setScoreRight">0</span>
+            </div>
+          </div>
+
+          <section id="matchSplitStage" class="split-stage">
+            <article id="playerArea0" class="player-half red active">
+              <div class="player-content">
+                <h2 id="score0" class="main-score">501</h2>
+                <div class="player-stats">
+                  <div class="stat-row"><span>3 Darts Avg.</span> <strong id="avg3_0">00.00</strong></div>
+                  <div class="stat-row"><span>First 9 Avg.</span> <strong id="avg9_0">0</strong></div>
+                  <div class="stat-row"><span>Throw</span> <strong id="throw0">0</strong></div>
+                </div>
+                <div class="player-footer">
+                  <div class="throw-indicator">Throw at</div>
+                  <div class="avatar">
+                    <img src="/icon.svg" alt="Avatar" />
+                  </div>
+                  <h3 id="name0" class="player-name">Player 1</h3>
+                </div>
+              </div>
             </article>
-            <article class="player-card dark">
-              <p class="small">Nächster</p>
-              <h3 id="nextName">Player 2</h3>
-              <p id="nextScore" class="big">501</p>
+
+            <article id="playerArea1" class="player-half dark">
+              <div class="player-content">
+                <h2 id="score1" class="main-score">501</h2>
+                <div class="player-stats">
+                  <div class="stat-row"><span>3 Darts Avg.</span> <strong id="avg3_1">00.00</strong></div>
+                  <div class="stat-row"><span>First 9 Avg.</span> <strong id="avg9_1">0</strong></div>
+                  <div class="stat-row"><span>Throw</span> <strong id="throw1">0</strong></div>
+                </div>
+                <div class="player-footer">
+                  <div class="throw-indicator hidden">Throw at</div>
+                  <div class="avatar">
+                    <img src="/icon.svg" alt="Avatar" />
+                  </div>
+                  <h3 id="name1" class="player-name">Player 2</h3>
+                </div>
+              </div>
+            </article>
+
+            <article id="playerArea2" class="player-half dark hidden">
+              <div class="player-content">
+                <h2 id="score2" class="main-score">501</h2>
+                <div class="player-stats">
+                  <div class="stat-row"><span>3 Darts Avg.</span> <strong id="avg3_2">00.00</strong></div>
+                  <div class="stat-row"><span>First 9 Avg.</span> <strong id="avg9_2">0</strong></div>
+                  <div class="stat-row"><span>Throw</span> <strong id="throw2">0</strong></div>
+                </div>
+                <div class="player-footer">
+                  <div class="throw-indicator hidden">Throw at</div>
+                  <div class="avatar">
+                    <img src="/icon.svg" alt="Avatar" />
+                  </div>
+                  <h3 id="name2" class="player-name">Player 3</h3>
+                </div>
+              </div>
+            </article>
+
+            <article id="playerArea3" class="player-half red hidden">
+              <div class="player-content">
+                <h2 id="score3" class="main-score">501</h2>
+                <div class="player-stats">
+                  <div class="stat-row"><span>3 Darts Avg.</span> <strong id="avg3_3">00.00</strong></div>
+                  <div class="stat-row"><span>First 9 Avg.</span> <strong id="avg9_3">0</strong></div>
+                  <div class="stat-row"><span>Throw</span> <strong id="throw3">0</strong></div>
+                </div>
+                <div class="player-footer">
+                  <div class="throw-indicator hidden">Throw at</div>
+                  <div class="avatar">
+                    <img src="/icon.svg" alt="Avatar" />
+                  </div>
+                  <h3 id="name3" class="player-name">Player 4</h3>
+                </div>
+              </div>
             </article>
           </section>
 
-          <section class="panel stats-inline">
-            <p><strong>Match Average:</strong> <span id="matchAverageLive">0.00</span></p>
-            <p><strong>Würfe gesamt:</strong> <span id="throwsCountLive">0</span></p>
-          </section>
-
-          <div class="controls">
-            <button id="simulateBtn" class="ghost">Demo-Wurf</button>
-            <button id="undoBtn" class="ghost">Undo</button>
-            <button id="backToSetupBtn" class="ghost">Einstellungen ändern</button>
+          <div class="floating-controls">
+            <button id="simulateBtn" class="icon-btn ghost">🎯</button>
+            <button id="undoBtn" class="icon-btn ghost">⎌</button>
+            <button id="backToSetupBtn" class="icon-btn ghost">⚙</button>
           </div>
         </section>
       </section>
@@ -152,21 +221,18 @@
       <section id="playersView" class="view">
         <h3>Spieler verwalten</h3>
         <div class="panel">
-          <div class="setup-group players">
-            <input id="managePlayer1" type="text" value="Player 1" placeholder="Spieler 1" />
-            <input id="managePlayer2" type="text" value="Player 2" placeholder="Spieler 2" />
-            <input id="managePlayer3" type="text" placeholder="Spieler 3" />
-            <input id="managePlayer4" type="text" placeholder="Spieler 4" />
-            <div>
-              <label for="manageLegsToWinSet">Legs pro Set</label>
-              <input id="manageLegsToWinSet" type="number" min="1" max="9" value="3" />
-            </div>
-          </div>
-          <div class="controls">
-            <button id="savePlayersManageBtn">Spieler speichern</button>
+          <h4>Neuer Spieler</h4>
+          <div class="setup-group">
+            <input id="newPlayerName" type="text" placeholder="Name eingeben..." />
+            <button id="addGlobalPlayerBtn">Hinzufügen</button>
           </div>
         </div>
-        <div id="playersTable" class="table-wrap"></div>
+        <div class="panel">
+          <h4>Alle Spieler</h4>
+          <div id="globalPlayerList" class="player-management-list">
+            <!-- Dynamic content -->
+          </div>
+        </div>
       </section>
 
       <section id="statsView" class="view">
