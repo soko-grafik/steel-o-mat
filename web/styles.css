@@ -344,9 +344,10 @@ input:focus, select:focus {
 
 .camera-preview {
   width: 100%;
+  height: auto;
+  display: block;
   border-radius: 10px;
   background: #000;
-  aspect-ratio: 16/9;
   object-fit: contain;
 }
 
@@ -361,6 +362,8 @@ input:focus, select:focus {
   place-items: center;
   color: var(--muted);
   border: 1px dashed #3a3f49;
+  min-height: 180px;
+  aspect-ratio: 16/9;
 }
 
 .calibration-badge {
