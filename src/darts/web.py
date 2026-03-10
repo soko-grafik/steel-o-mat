@@ -31,7 +31,24 @@ def parse_args() -> argparse.Namespace:
 def _camera_worker(runtime: RuntimeState, stop_event: threading.Event, config_path: str, demo: bool = False) -> None:
     cfg = load_config(config_path)
     streams: list[CameraStream] = []
-    demo_dir = Path(__file__).resolve().parents[2] / "config" / "demoCams"
+
+    def resolve_demo_image(index: int) -> str | None:
+        project_root = Path(__file__).resolve().parents[2]
+        candidate_dirs = [
+            project_root / "config" / "demoCams",
+            project_root / "demo_assets",
+        ]
+        candidate_names = [
+            f"cam{index+1}.jpg",
+            f"cam{index}.jpg",
+        ]
+        for directory in candidate_dirs:
+            for file_name in candidate_names:
+                img_path = directory / file_name
+                if img_path.exists():
+                    return str(img_path)
+        return None
+
     try:
         for cam in cfg.cameras:
             if not cam.enabled:
@@ -39,16 +56,18 @@ def _camera_worker(runtime: RuntimeState, stop_event: threading.Event, config_pa
             
             demo_image_path = None
             if demo:
-                img_path = demo_dir / f"cam{cam.index+1}.jpg"
-                if img_path.exists():
-                    demo_image_path = str(img_path)
+                demo_image_path = resolve_demo_image(cam.index)
 
-            streams.append(
-                CameraStream(
-                    cam.name, cam.index, cam.homography, width=cfg.width, height=cfg.height, fps=cfg.fps,
-                    demo_image_path=demo_image_path
+            try:
+                streams.append(
+                    CameraStream(
+                        cam.name, cam.index, cam.homography, width=cfg.width, height=cfg.height, fps=cfg.fps,
+                        demo_image_path=demo_image_path
+                    )
                 )
-            )
+            except Exception as exc:
+                # Skip unavailable cameras so one bad device does not stop the whole worker.
+                print(f"Skipping camera '{cam.name}' (index={cam.index}): {exc}")
 
         if not streams:
             return
@@ -83,7 +102,23 @@ def _make_handler(
 ) -> type[SimpleHTTPRequestHandler]:
     config_file = Path(config_path)
     players_file = config_file.parent / "players.json"
-    demo_dir = Path(__file__).resolve().parents[2] / "config" / "demoCams"
+
+    def resolve_demo_image(index: int) -> Path | None:
+        project_root = Path(__file__).resolve().parents[2]
+        candidate_dirs = [
+            project_root / "config" / "demoCams",
+            project_root / "demo_assets",
+        ]
+        candidate_names = [
+            f"cam{index+1}.jpg",
+            f"cam{index}.jpg",
+        ]
+        for directory in candidate_dirs:
+            for file_name in candidate_names:
+                img_path = directory / file_name
+                if img_path.exists():
+                    return img_path
+        return None
 
     def read_players() -> list[str]:
         if not players_file.exists():
@@ -227,13 +262,13 @@ def _make_handler(
                 self.send_header("Content-Length", str(len(image_data)))
                 self.end_headers()
                 self.wfile.write(image_data)
-            except (BrokenPipeError, ConnectionResetError):
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                 pass
 
         def _stream_mjpeg(self, index: int) -> None:
             if demo:
-                img_path = demo_dir / f"cam{index+1}.jpg"
-                if not img_path.exists():
+                img_path = resolve_demo_image(index)
+                if img_path is None:
                     self._send_json({"ok": False, "error": "demo image not found"}, status=HTTPStatus.NOT_FOUND)
                     return
                 jpg = img_path.read_bytes()
@@ -250,7 +285,7 @@ def _make_handler(
                         self.wfile.write(jpg)
                         self.wfile.write(b"\r\n")
                         time.sleep(1.0)
-                except (BrokenPipeError, ConnectionResetError):
+                except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                     pass
                 return
 
@@ -294,7 +329,7 @@ def _make_handler(
                     self.wfile.write(jpg)
                     self.wfile.write(b"\r\n")
                     time.sleep(0.04)
-            except (BrokenPipeError, ConnectionResetError):
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                 pass
             finally:
                 cap.release()
@@ -302,7 +337,7 @@ def _make_handler(
         def do_GET(self) -> None:  # noqa: N802
             try:
                 self._do_get_internal()
-            except (BrokenPipeError, ConnectionResetError):
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                 pass
             except Exception as exc:
                 print(f"Error handling GET {self.path}: {exc}")
@@ -358,8 +393,8 @@ def _make_handler(
                     return
 
                 if demo:
-                    img_path = demo_dir / f"cam{index+1}.jpg"
-                    if not img_path.exists():
+                    img_path = resolve_demo_image(index)
+                    if img_path is None:
                         self._send_json({"ok": False, "error": "demo image not found"}, status=HTTPStatus.NOT_FOUND)
                         return
                     self._send_jpeg(img_path.read_bytes())
@@ -409,7 +444,7 @@ def _make_handler(
         def do_POST(self) -> None:  # noqa: N802
             try:
                 self._do_post_internal()
-            except (BrokenPipeError, ConnectionResetError):
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                 pass
             except Exception as exc:
                 print(f"Error handling POST {self.path}: {exc}")
@@ -539,8 +574,8 @@ def _make_handler(
                     
                     frame = None
                     if demo:
-                        img_path = demo_dir / f"cam{index+1}.jpg"
-                        if img_path.exists():
+                        img_path = resolve_demo_image(index)
+                        if img_path is not None:
                             frame = cv2.imread(str(img_path))
                     else:
                         cfg = read_camera_config()
@@ -560,12 +595,20 @@ def _make_handler(
                         self._send_json({"ok": False, "error": "Could not read frame for auto-calibration"}, status=HTTPStatus.NOT_FOUND)
                         return
 
-                    points = detect_dartboard(frame)
-                    if points is None:
+                    detection = detect_dartboard(frame)
+                    if detection is None:
                         self._send_json({"ok": False, "error": "Automated detection failed. Please use manual calibration."}, status=HTTPStatus.UNPROCESSABLE_ENTITY)
                         return
 
-                    self._send_json({"ok": True, "points": points})
+                    self._send_json(
+                        {
+                            "ok": True,
+                            "points": detection.get("points", []),
+                            "orientation_source": detection.get("orientation_source"),
+                            "orientation_score": detection.get("orientation_score"),
+                            "warning": detection.get("warning"),
+                        }
+                    )
                 except Exception as exc:
                     self._send_json({"ok": False, "error": str(exc)}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
                 return
@@ -604,7 +647,9 @@ def main() -> int:
     )
     worker.start()
 
-    web_root = Path(__file__).resolve().parents[2] / "web"
+    web_root_base = Path(__file__).resolve().parents[2] / "web"
+    dist_root = web_root_base / "dist"
+    web_root = dist_root if dist_root.exists() else web_root_base
     handler = _make_handler(runtime, web_root, args.config, demo=args.demo)
     server = ThreadingHTTPServer((args.host, args.port), handler)
 

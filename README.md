@@ -44,6 +44,16 @@ Copy-Item config/cameras.example.json config/cameras.json
 ```
 
 ## Run web app (PWA)
+Frontend build (React):
+```powershell
+cd web
+npm install
+npm run build
+cd ..
+```
+
+The Python server automatically serves `web/dist` when available.
+
 ```powershell
 $env:PYTHONPATH='src'; python -m darts.web --config config/cameras.json --host 0.0.0.0 --port 8080
 ```
