@@ -14,7 +14,7 @@ except ImportError:  # pragma: no cover - runtime dependency
 @dataclass(slots=True)
 class CameraReading:
     name: str
-    frame: Any
+    frame: Any | None
     pixel_tip: tuple[int, int] | None
     board_tip_mm: tuple[float, float] | None
 
@@ -29,25 +29,54 @@ def open_video_capture(index: int, width: int = 640, height: int = 480, fps: int
         return DummyCapture()
 
     def apply_settings(c: Any) -> Any:
-        c.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-        c.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-        c.set(cv2.CAP_PROP_FPS, fps)
+        for prop, value in (
+            (cv2.CAP_PROP_FRAME_WIDTH, width),
+            (cv2.CAP_PROP_FRAME_HEIGHT, height),
+            (cv2.CAP_PROP_FPS, fps),
+        ):
+            try:
+                c.set(prop, value)
+            except Exception:
+                # Some camera drivers/backends throw opaque OpenCV C++ exceptions here.
+                # Keep capture open and continue with whatever defaults are supported.
+                pass
         return c
 
+    def try_backend(*args: Any) -> Any:
+        try:
+            return cv2.VideoCapture(*args)
+        except Exception:
+            class DummyCapture:
+                def isOpened(self) -> bool: return False
+                def release(self) -> None: pass
+            return DummyCapture()
+
+    def safe_is_opened(c: Any) -> bool:
+        try:
+            return bool(c.isOpened())
+        except Exception:
+            return False
+
+    def safe_release(c: Any) -> None:
+        try:
+            c.release()
+        except Exception:
+            pass
+
     # Try DSHOW first (fastest on Windows)
-    cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
-    if cap.isOpened():
+    cap = try_backend(index, cv2.CAP_DSHOW)
+    if safe_is_opened(cap):
         return apply_settings(cap)
-    cap.release()
+    safe_release(cap)
 
     # Try MSMF (modern Windows)
-    cap = cv2.VideoCapture(index, cv2.CAP_MSMF)
-    if cap.isOpened():
+    cap = try_backend(index, cv2.CAP_MSMF)
+    if safe_is_opened(cap):
         return apply_settings(cap)
-    cap.release()
+    safe_release(cap)
 
     # Default backend
-    cap = cv2.VideoCapture(index)
+    cap = try_backend(index)
     return apply_settings(cap)
 
 
@@ -73,8 +102,16 @@ class CameraStream:
             self.capture = None
         else:
             self.capture = open_video_capture(index, width, height, fps)
-            if not self.capture.isOpened():
+            try:
+                opened = bool(self.capture.isOpened())
+            except Exception:
+                opened = False
+            if not opened:
                 raise RuntimeError(f"Unable to open camera index {index} ({name}).")
+        self.width = width
+        self.height = height
+        self.fps = fps
+        self._read_failures = 0
         
         self.background_gray: np.ndarray | None = None
 
@@ -137,9 +174,27 @@ class CameraStream:
             if frame is None:
                 raise RuntimeError(f"Could not read demo image from {self.demo_image_path}")
         else:
-            ok, frame = self.capture.read()
-            if not ok:
-                raise RuntimeError(f"Could not read frame from camera '{self.name}'.")
+            try:
+                ok, frame = self.capture.read()
+            except Exception:
+                ok, frame = False, None
+
+            if not ok or frame is None:
+                self._read_failures += 1
+
+                # Attempt a soft reconnect after repeated failures.
+                if self._read_failures >= 5:
+                    try:
+                        self.capture.release()
+                    except Exception:
+                        pass
+                    self.capture = open_video_capture(self.index, self.width, self.height, self.fps)
+                    self._read_failures = 0
+
+                return CameraReading(self.name, None, None, None)
+
+            self._read_failures = 0
+
         tip_px = self._detect_tip_pixel(frame)
         tip_mm = self._project_to_board(tip_px)
         return CameraReading(self.name, frame, tip_px, tip_mm)

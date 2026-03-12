@@ -416,17 +416,27 @@ input:focus, select:focus {
 
 .manual-calibration-stage {
   position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
   border: 1px solid #3a3f49;
   border-radius: 12px;
   overflow: hidden;
   background: #000;
 }
 
+.manual-calibration-image-wrap {
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+}
+
 .manual-calibration-image {
-  width: 100%;
+  width: auto;
+  max-width: 100%;
   display: block;
   max-height: 68vh;
-  object-fit: contain;
+  height: auto;
 }
 
 .board-guide-overlay {
@@ -438,7 +448,7 @@ input:focus, select:focus {
 }
 
 .board-guide-overlay-preview {
-  opacity: 0.82;
+  opacity: 0.9;
 }
 
 .manual-calibration-overlay {

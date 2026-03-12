@@ -12,7 +12,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from .camera import CameraStream, open_video_capture
-from .calibration_auto import detect_dartboard
+from .calibration_auto import detect_dartboard, select_stable_detection
 from .config import load_config
 from .fusion import fuse_points
 from .runtime import RuntimeState
@@ -195,19 +195,26 @@ def _make_handler(
         devices: list[dict[str, Any]] = []
         cfg = read_camera_config()
         for index in range(max_devices):
-            cap = open_video_capture(
-                index,
-                width=int(cfg.get("width", 640)),
-                height=int(cfg.get("height", 480)),
-                fps=int(cfg.get("fps", 30)),
-            )
-            if not cap.isOpened():
+            try:
+                cap = open_video_capture(
+                    index,
+                    width=int(cfg.get("width", 640)),
+                    height=int(cfg.get("height", 480)),
+                    fps=int(cfg.get("fps", 30)),
+                )
+                if not cap.isOpened():
+                    cap.release()
+                    continue
+                ok, _ = cap.read()
                 cap.release()
+                if ok:
+                    devices.append({"index": index, "label": f"USB Camera {index}"})
+            except Exception:
+                # Ignore broken indices/backends and keep probing.
                 continue
-            ok, _ = cap.read()
-            cap.release()
-            if ok:
-                devices.append({"index": index, "label": f"USB Camera {index}"})
+        if not devices:
+            # Fallback for drivers/backends where probing fails but direct open by index still works.
+            return [{"index": i, "label": f"Camera index {i} (manual)"} for i in range(4)]
         return devices
 
     def compute_homography(image_points: list[list[float]], board_points: list[list[float]]) -> list[list[float]]:
@@ -302,8 +309,15 @@ def _make_handler(
                 height=int(cfg.get("height", 480)),
                 fps=int(cfg.get("fps", 30)),
             )
-            if not cap.isOpened():
-                cap.release()
+            try:
+                opened = bool(cap.isOpened())
+            except Exception:
+                opened = False
+            if not opened:
+                try:
+                    cap.release()
+                except Exception:
+                    pass
                 self._send_json({"ok": False, "error": f"camera {index} not available"}, status=HTTPStatus.NOT_FOUND)
                 return
 
@@ -315,24 +329,31 @@ def _make_handler(
 
             try:
                 while True:
-                    ok, frame = cap.read()
-                    if not ok:
-                        time.sleep(0.03)
+                    try:
+                        ok, frame = cap.read()
+                        if not ok or frame is None:
+                            time.sleep(0.03)
+                            continue
+                        ok, encoded = cv2.imencode(".jpg", frame)
+                        if not ok:
+                            continue
+                        jpg = encoded.tobytes()
+                        self.wfile.write(f"--{boundary}\r\n".encode("utf-8"))
+                        self.wfile.write(b"Content-Type: image/jpeg\r\n")
+                        self.wfile.write(f"Content-Length: {len(jpg)}\r\n\r\n".encode("utf-8"))
+                        self.wfile.write(jpg)
+                        self.wfile.write(b"\r\n")
+                        time.sleep(0.04)
+                    except Exception:
+                        time.sleep(0.1)
                         continue
-                    ok, encoded = cv2.imencode(".jpg", frame)
-                    if not ok:
-                        continue
-                    jpg = encoded.tobytes()
-                    self.wfile.write(f"--{boundary}\r\n".encode("utf-8"))
-                    self.wfile.write(b"Content-Type: image/jpeg\r\n")
-                    self.wfile.write(f"Content-Length: {len(jpg)}\r\n\r\n".encode("utf-8"))
-                    self.wfile.write(jpg)
-                    self.wfile.write(b"\r\n")
-                    time.sleep(0.04)
             except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                 pass
             finally:
-                cap.release()
+                try:
+                    cap.release()
+                except Exception:
+                    pass
 
         def do_GET(self) -> None:  # noqa: N802
             try:
@@ -407,22 +428,59 @@ def _make_handler(
                     return
 
                 cfg = read_camera_config()
-                cap = open_video_capture(
-                    index,
-                    width=int(cfg.get("width", 640)),
-                    height=int(cfg.get("height", 480)),
-                    fps=int(cfg.get("fps", 30)),
-                )
-                if not cap.isOpened():
-                    cap.release()
+                try:
+                    cap = open_video_capture(
+                        index,
+                        width=int(cfg.get("width", 640)),
+                        height=int(cfg.get("height", 480)),
+                        fps=int(cfg.get("fps", 30)),
+                    )
+                except Exception as exc:
+                    self._send_json(
+                        {"ok": False, "error": f"camera open failed for index {index}: {exc}"},
+                        status=HTTPStatus.BAD_GATEWAY,
+                    )
+                    return
+
+                try:
+                    opened = bool(cap.isOpened())
+                except Exception:
+                    opened = False
+
+                if not opened:
+                    try:
+                        cap.release()
+                    except Exception:
+                        pass
                     self._send_json({"ok": False, "error": f"camera {index} not available"}, status=HTTPStatus.NOT_FOUND)
                     return
-                ok, frame = cap.read()
-                cap.release()
-                if not ok:
+                try:
+                    ok, frame = cap.read()
+                except Exception as exc:
+                    try:
+                        cap.release()
+                    except Exception:
+                        pass
+                    self._send_json(
+                        {"ok": False, "error": f"failed reading camera {index}: {exc}"},
+                        status=HTTPStatus.BAD_GATEWAY,
+                    )
+                    return
+                try:
+                    cap.release()
+                except Exception:
+                    pass
+                if not ok or frame is None:
                     self._send_json({"ok": False, "error": f"failed reading camera {index}"}, status=HTTPStatus.BAD_GATEWAY)
                     return
-                ok, encoded = cv2.imencode(".jpg", frame)
+                try:
+                    ok, encoded = cv2.imencode(".jpg", frame)
+                except Exception as exc:
+                    self._send_json(
+                        {"ok": False, "error": f"failed encoding preview: {exc}"},
+                        status=HTTPStatus.INTERNAL_SERVER_ERROR,
+                    )
+                    return
                 if not ok:
                     self._send_json({"ok": False, "error": "failed encoding preview"}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
                     return
@@ -571,12 +629,18 @@ def _make_handler(
                 try:
                     index = int(data.get("index", 0))
                     import cv2
-                    
-                    frame = None
+
+                    max_frames = int(data.get("max_frames", 9))
+                    max_frames = max(3, min(max_frames, 18))
+                    detections: list[dict[str, object]] = []
+
                     if demo:
                         img_path = resolve_demo_image(index)
                         if img_path is not None:
                             frame = cv2.imread(str(img_path))
+                            detection = detect_dartboard(frame) if frame is not None else None
+                            if detection is not None:
+                                detections.append(detection)
                     else:
                         cfg = read_camera_config()
                         cap = open_video_capture(
@@ -586,16 +650,26 @@ def _make_handler(
                             fps=int(cfg.get("fps", 30)),
                         )
                         if cap.isOpened():
-                            ok, f = cap.read()
-                            if ok:
-                                frame = f
-                            cap.release()
+                            warmup = 3
+                            try:
+                                for _ in range(max_frames + warmup):
+                                    ok, frame = cap.read()
+                                    if not ok or frame is None:
+                                        continue
+                                    if warmup > 0:
+                                        warmup -= 1
+                                        continue
+                                    detection = detect_dartboard(frame)
+                                    if detection is not None:
+                                        detections.append(detection)
+                            finally:
+                                cap.release()
 
-                    if frame is None:
-                        self._send_json({"ok": False, "error": "Could not read frame for auto-calibration"}, status=HTTPStatus.NOT_FOUND)
+                    if not detections:
+                        self._send_json({"ok": False, "error": "Could not read usable frames for auto-calibration"}, status=HTTPStatus.NOT_FOUND)
                         return
 
-                    detection = detect_dartboard(frame)
+                    detection = select_stable_detection(detections)
                     if detection is None:
                         self._send_json({"ok": False, "error": "Automated detection failed. Please use manual calibration."}, status=HTTPStatus.UNPROCESSABLE_ENTITY)
                         return
@@ -607,6 +681,7 @@ def _make_handler(
                             "orientation_source": detection.get("orientation_source"),
                             "orientation_score": detection.get("orientation_score"),
                             "warning": detection.get("warning"),
+                            "used_frames": len(detections),
                         }
                     )
                 except Exception as exc:
@@ -651,7 +726,14 @@ def main() -> int:
     dist_root = web_root_base / "dist"
     web_root = dist_root if dist_root.exists() else web_root_base
     handler = _make_handler(runtime, web_root, args.config, demo=args.demo)
-    server = ThreadingHTTPServer((args.host, args.port), handler)
+    try:
+        server = ThreadingHTTPServer((args.host, args.port), handler)
+    except OSError as exc:
+        stop_event.set()
+        worker.join(timeout=1.0)
+        print(f"Failed to bind {args.host}:{args.port} -> {exc}")
+        print("Try another port, e.g.: python -m darts.web --port 8090")
+        return 1
 
     print(f"Web UI running at http://{args.host}:{args.port}")
     print("PWA install available in supported browsers.")
